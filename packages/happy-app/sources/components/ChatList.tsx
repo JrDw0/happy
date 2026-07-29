@@ -394,6 +394,13 @@ const ChatListInternal = React.memo((props: {
                 )}
                 onEndReached={handleLoadOlder}
                 onEndReachedThreshold={0.5}
+                // Virtualization tuning for long histories: keep the render
+                // window tight and batch row mounts so huge sessions don't
+                // freeze the UI thread while history streams in.
+                windowSize={10}
+                maxToRenderPerBatch={20}
+                initialNumToRender={20}
+                updateCellsBatchingPeriod={50}
             />
             {showScrollButton && (
                 <View style={styles.scrollButtonContainer}>

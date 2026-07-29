@@ -16,7 +16,7 @@ import { createReducer, reducer, ReducerState } from "./reducer/reducer";
 import { Message } from "./typesMessage";
 import { NormalizedMessage } from "./typesRaw";
 import { isMachineOnline } from '@/utils/machineUtils';
-import { getSessionName, getSessionSubtitle, getSessionAvatarId, type SessionState } from '@/utils/sessionUtils';
+import { getSessionName, getSessionSubtitle, getSessionAvatarId, getSessionIdentityLine, type SessionState } from '@/utils/sessionUtils';
 import { applySettings, Settings } from "./settings";
 import { LocalSettings, applyLocalSettings } from "./localSettings";
 import { Purchases, customerInfoToPurchases } from "./purchases";
@@ -128,7 +128,7 @@ function buildSessionRowData(session: Session, unreadSessionIds?: Set<string>): 
         avatarId: getSessionAvatarId(session),
         flavor: session.metadata?.flavor ?? null,
         clientId: session.metadata?.client?.id ?? null,
-        identityLine: rigIdentity ? `${rigIdentity.clientName} · ${rigIdentity.providerName}` : null,
+        identityLine: getSessionIdentityLine(session),
         providerKind: session.metadata?.provider?.kind ?? null,
         modelName: rigIdentity?.modelName ?? null,
         activitySummary: rigActivity.length > 0
@@ -218,6 +218,7 @@ interface StorageState {
     setSocketStatus: (status: 'disconnected' | 'connecting' | 'connected' | 'error') => void;
     getActiveSessions: () => Session[];
     updateSessionDraft: (sessionId: string, draft: string | null) => void;
+    updateSessionMetadata: (sessionId: string, metadata: Session['metadata'], metadataVersion?: number) => void;
     updateSessionAgentModes: (sessionId: string, patch: SessionAgentModesPatch) => void;
     markSessionMessageSent: (sessionId: string) => void;
     // Artifact methods
@@ -692,15 +693,52 @@ export const storage = create<StorageState>()((set, get) => {
                     hasReadyEvent = true;
                 }
 
-                // Merge messages
+                // Merge messages. Avoid a full O(n log n) re-sort of the whole
+                // history on every batch: the existing array is already sorted
+                // (desc by createdAt), so we patch updated entries in place and
+                // merge the (small) sorted batch of new messages into it.
                 const mergedMessagesMap = { ...existingSession.messagesMap };
+                const newMessages: Message[] = [];
+                let updatedCount = 0;
+                let requiresResort = false;
                 processedMessages.forEach(message => {
+                    const prior = existingSession.messagesMap[message.id];
+                    if (!prior) {
+                        newMessages.push(message);
+                    } else {
+                        updatedCount++;
+                        if (prior.createdAt !== message.createdAt) {
+                            requiresResort = true;
+                        }
+                    }
                     mergedMessagesMap[message.id] = message;
                 });
 
-                // Convert to array and sort by createdAt
-                const messagesArray = Object.values(mergedMessagesMap)
-                    .sort((a, b) => b.createdAt - a.createdAt);
+                let messagesArray: Message[];
+                if (requiresResort) {
+                    // A message moved in time - rebuild the order from scratch
+                    messagesArray = Object.values(mergedMessagesMap)
+                        .sort((a, b) => b.createdAt - a.createdAt);
+                } else {
+                    let base = existingSession.messages;
+                    if (updatedCount > 0) {
+                        base = base.map(m => mergedMessagesMap[m.id] !== m ? mergedMessagesMap[m.id] : m);
+                    }
+                    if (newMessages.length > 0) {
+                        newMessages.sort((a, b) => b.createdAt - a.createdAt);
+                        messagesArray = new Array<Message>(base.length + newMessages.length);
+                        let i = 0, j = 0, k = 0;
+                        while (i < base.length && j < newMessages.length) {
+                            messagesArray[k++] = base[i].createdAt >= newMessages[j].createdAt
+                                ? base[i++]
+                                : newMessages[j++];
+                        }
+                        while (i < base.length) messagesArray[k++] = base[i++];
+                        while (j < newMessages.length) messagesArray[k++] = newMessages[j++];
+                    } else {
+                        messagesArray = base;
+                    }
+                }
 
                 // Update session with todos and latestUsage
                 // IMPORTANT: We extract latestUsage from the mutable reducerState and copy it to the Session object
@@ -1031,6 +1069,24 @@ export const storage = create<StorageState>()((set, get) => {
                 ...state,
                 sessions: updatedSessions,
                 sessionListViewData: buildSessionListViewData(updatedSessions)
+            };
+        }),
+        updateSessionMetadata: (sessionId: string, metadata: Session['metadata'], metadataVersion?: number) => set((state) => {
+            const session = state.sessions[sessionId];
+            if (!session) return state;
+
+            const updatedSessions = {
+                ...state.sessions,
+                [sessionId]: {
+                    ...session,
+                    metadata,
+                    ...(metadataVersion !== undefined ? { metadataVersion } : {}),
+                },
+            };
+            return {
+                ...state,
+                sessions: updatedSessions,
+                sessionListViewData: buildSessionListViewData(updatedSessions, state.unreadSessionIds),
             };
         }),
         // Permission / model / effort picks are local mirrors of synced session

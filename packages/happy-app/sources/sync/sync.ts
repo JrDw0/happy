@@ -542,6 +542,7 @@ class Sync {
                     ref,
                     name: attachment.name,
                     size: attachment.size,
+                    mimeType: attachment.mimeType,
                     width: attachment.width,
                     height: attachment.height,
                     thumbhash: attachment.thumbhash,
@@ -1929,6 +1930,9 @@ class Sync {
 
     private prefetchOlderMessagesInBackground = async (sessionId: string) => {
         const SLEEP_BETWEEN_PAGES_MS = 250;
+        // Fetch several pages per step so the store (and the UI) only re-renders
+        // once per batch instead of once per 100-message page.
+        const PAGES_PER_BATCH = 4;
         // While loadOlderMessages handles the actual work, this loop is what
         // keeps it going without user input. We keep stepping until either:
         //   - the server says there is no more older history, or
@@ -1952,7 +1956,7 @@ class Sync {
             }
 
             try {
-                await this.loadOlderMessages(sessionId);
+                await this.loadOlderMessages(sessionId, PAGES_PER_BATCH);
             } catch (error) {
                 log.log(`💬 prefetchOlderMessagesInBackground: error for ${sessionId}, stopping: ${String(error)}`);
                 return;
@@ -1999,6 +2003,9 @@ class Sync {
         encryption: ReturnType<Encryption['getSessionEncryption']> & {},
         fromSeq: number
     ) => {
+        // Accumulate all pages and apply them in a single batch - one reducer
+        // pass + one store update (= one re-render) instead of one per page.
+        const accumulated: NormalizedMessage[] = [];
         let afterSeq = fromSeq;
         while (true) {
             const response = await apiSocket.request(`/v3/sessions/${sessionId}/messages?after_seq=${afterSeq}&limit=100`);
@@ -2008,7 +2015,7 @@ class Sync {
             const data = await response.json() as V3GetSessionMessagesResponse;
             const messages = Array.isArray(data.messages) ? data.messages : [];
 
-            await this.applyFetchedMessages(sessionId, encryption, messages);
+            accumulated.push(...await this.decryptAndNormalizeMessages(encryption, messages));
 
             let maxSeq = afterSeq;
             for (const message of messages) {
@@ -2023,14 +2030,17 @@ class Sync {
             }
             afterSeq = maxSeq;
         }
+
+        if (accumulated.length > 0) {
+            this.applyMessages(sessionId, accumulated);
+        }
     }
 
-    private applyFetchedMessages = async (
-        sessionId: string,
+    private decryptAndNormalizeMessages = async (
         encryption: ReturnType<Encryption['getSessionEncryption']> & {},
         messages: ApiMessage[]
-    ) => {
-        if (messages.length === 0) return;
+    ): Promise<NormalizedMessage[]> => {
+        if (messages.length === 0) return [];
         const decryptedMessages = await encryption.decryptMessages(messages);
         const normalizedMessages: NormalizedMessage[] = [];
         for (let i = 0; i < decryptedMessages.length; i++) {
@@ -2041,19 +2051,30 @@ class Sync {
                 normalizedMessages.push(normalized);
             }
         }
+        return normalizedMessages;
+    }
+
+    private applyFetchedMessages = async (
+        sessionId: string,
+        encryption: ReturnType<Encryption['getSessionEncryption']> & {},
+        messages: ApiMessage[]
+    ) => {
+        const normalizedMessages = await this.decryptAndNormalizeMessages(encryption, messages);
         if (normalizedMessages.length > 0) {
             this.applyMessages(sessionId, normalizedMessages);
         }
     }
 
     /**
-     * Fetch one page of older messages for a session and prepend them to the
-     * store. Called from the chat UI when the user scrolls past the top of
-     * the currently loaded history. No-op when we have already fetched the
-     * earliest message, when no initial fetch has happened yet, or when an
-     * older-fetch is already in flight for this session.
+     * Fetch older messages for a session and prepend them to the store.
+     * Called from the chat UI when the user scrolls past the top of the
+     * currently loaded history (one page), and from the background prefetch
+     * loop with maxPages > 1 so several pages land as a single store update.
+     * No-op when we have already fetched the earliest message, when no
+     * initial fetch has happened yet, or when an older-fetch is already in
+     * flight for this session.
      */
-    loadOlderMessages = async (sessionId: string) => {
+    loadOlderMessages = async (sessionId: string, maxPages: number = 1) => {
         const oldestSeq = this.sessionOldestSeq.get(sessionId);
         if (oldestSeq === undefined || oldestSeq <= 1) {
             return;
@@ -2074,31 +2095,44 @@ class Sync {
                 }
                 // Re-read the cursor inside the lock. A concurrent
                 // socket-pushed update or reload could have changed it.
-                const beforeSeq = this.sessionOldestSeq.get(sessionId);
-                if (beforeSeq === undefined || beforeSeq <= 1) {
+                const initialBeforeSeq = this.sessionOldestSeq.get(sessionId);
+                if (initialBeforeSeq === undefined || initialBeforeSeq <= 1) {
                     return;
                 }
-                const response = await apiSocket.request(
-                    `/v3/sessions/${sessionId}/messages?before_seq=${beforeSeq}&limit=100`
-                );
-                if (!response.ok) {
-                    throw new Error(`Failed to load older messages for ${sessionId}: ${response.status}`);
-                }
-                const data = await response.json() as V3GetSessionMessagesResponse;
-                const messages = Array.isArray(data.messages) ? data.messages : [];
 
-                await this.applyFetchedMessages(sessionId, encryption, messages);
+                // Accumulate up to maxPages pages, then apply them in a single
+                // batch: one reducer pass + one store update per batch.
+                let beforeSeq: number = initialBeforeSeq;
+                const accumulated: NormalizedMessage[] = [];
+                let hasMore = true;
+                for (let page = 0; page < maxPages && hasMore && beforeSeq > 1; page++) {
+                    const response = await apiSocket.request(
+                        `/v3/sessions/${sessionId}/messages?before_seq=${beforeSeq}&limit=100`
+                    );
+                    if (!response.ok) {
+                        throw new Error(`Failed to load older messages for ${sessionId}: ${response.status}`);
+                    }
+                    const data = await response.json() as V3GetSessionMessagesResponse;
+                    const messages = Array.isArray(data.messages) ? data.messages : [];
 
-                let minSeq = beforeSeq;
-                for (const message of messages) {
-                    if (message.seq < minSeq) minSeq = message.seq;
-                }
-                if (messages.length > 0) {
+                    accumulated.push(...await this.decryptAndNormalizeMessages(encryption, messages));
+
+                    let minSeq: number = beforeSeq;
+                    for (const message of messages) {
+                        if (message.seq < minSeq) minSeq = message.seq;
+                    }
+                    hasMore = !!data.hasMore && messages.length > 0;
+                    if (messages.length === 0) {
+                        break;
+                    }
+                    beforeSeq = minSeq;
                     this.sessionOldestSeq.set(sessionId, minSeq);
                 }
-                storage.getState().applyOlderMessagesPagination(sessionId, {
-                    hasMore: !!data.hasMore && messages.length > 0
-                });
+
+                if (accumulated.length > 0) {
+                    this.applyMessages(sessionId, accumulated);
+                }
+                storage.getState().applyOlderMessagesPagination(sessionId, { hasMore });
             });
         } finally {
             storage.getState().applyOlderMessagesLoading(sessionId, false);
@@ -2300,11 +2334,16 @@ class Sync {
                     return;
                 }
 
+                const shouldApplyMetadata = Boolean(
+                    updateData.body.metadata
+                    && updateData.body.metadata.version > session.metadataVersion,
+                );
+                const metadataUpdate = shouldApplyMetadata ? updateData.body.metadata : null;
                 const agentState = updateData.body.agentState && sessionEncryption
                     ? await sessionEncryption.decryptAgentState(updateData.body.agentState.version, updateData.body.agentState.value)
                     : session.agentState;
-                const metadata = updateData.body.metadata && sessionEncryption
-                    ? await sessionEncryption.decryptMetadata(updateData.body.metadata.version, updateData.body.metadata.value)
+                const metadata = metadataUpdate && sessionEncryption
+                    ? await sessionEncryption.decryptMetadata(metadataUpdate.version, metadataUpdate.value)
                     : session.metadata;
 
                 this.applySessions([{
@@ -2314,8 +2353,8 @@ class Sync {
                         ? updateData.body.agentState.version
                         : session.agentStateVersion,
                     metadata,
-                    metadataVersion: updateData.body.metadata
-                        ? updateData.body.metadata.version
+                    metadataVersion: metadataUpdate
+                        ? metadataUpdate.version
                         : session.metadataVersion,
                     updatedAt: updateData.createdAt,
                     seq: updateData.seq
