@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { KNOWN_ACP_AGENTS, resolveAcpAgentConfig } from './acpAgentConfig';
+import { KNOWN_ACP_AGENTS, parseAcpCliFlags, resolveAcpAgentConfig } from './acpAgentConfig';
 
 describe('KNOWN_ACP_AGENTS', () => {
   it('defines built-in Gemini and OpenCode command mappings', () => {
@@ -57,5 +57,52 @@ describe('resolveAcpAgentConfig', () => {
 
   it('throws when separator form omits command', () => {
     expect(() => resolveAcpAgentConfig(['--'])).toThrow('Missing command after "--". Usage: happy acp -- <command> [args]');
+  });
+});
+
+describe('parseAcpCliFlags', () => {
+  it('returns defaults for a plain agent invocation', () => {
+    expect(parseAcpCliFlags(['opencode'])).toEqual({
+      startedBy: undefined,
+      verbose: false,
+      resumeSessionId: undefined,
+      acpArgs: ['opencode'],
+    });
+  });
+
+  it('strips --started-by, --verbose, and --resume from acp args', () => {
+    expect(parseAcpCliFlags(['opencode', '--started-by', 'daemon', '--verbose', '--resume', 'ses_abc123'])).toEqual({
+      startedBy: 'daemon',
+      verbose: true,
+      resumeSessionId: 'ses_abc123',
+      acpArgs: ['opencode'],
+    });
+  });
+
+  it('handles --resume before the agent name', () => {
+    expect(parseAcpCliFlags(['--resume', 'ses_abc123', 'opencode'])).toEqual({
+      startedBy: undefined,
+      verbose: false,
+      resumeSessionId: 'ses_abc123',
+      acpArgs: ['opencode'],
+    });
+  });
+
+  it('passes happy flags through untouched after the -- separator', () => {
+    expect(parseAcpCliFlags(['--', 'custom-agent', '--resume', 'x', '--verbose'])).toEqual({
+      startedBy: undefined,
+      verbose: false,
+      resumeSessionId: undefined,
+      acpArgs: ['--', 'custom-agent', '--resume', 'x', '--verbose'],
+    });
+  });
+
+  it('strips happy flags before -- but not after', () => {
+    expect(parseAcpCliFlags(['--resume', 'ses_1', '--', 'custom-agent', '--resume', 'other'])).toEqual({
+      startedBy: undefined,
+      verbose: false,
+      resumeSessionId: 'ses_1',
+      acpArgs: ['--', 'custom-agent', '--resume', 'other'],
+    });
   });
 });

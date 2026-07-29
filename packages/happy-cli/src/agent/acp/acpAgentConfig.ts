@@ -14,6 +14,46 @@ export type ResolvedAcpAgentConfig = {
   args: string[];
 };
 
+export type ParsedAcpCliFlags = {
+  startedBy?: 'daemon' | 'terminal';
+  verbose: boolean;
+  resumeSessionId?: string;
+  /** Remaining args to feed into resolveAcpAgentConfig */
+  acpArgs: string[];
+};
+
+/**
+ * Strip happy-specific flags (--started-by, --verbose, --resume) from the
+ * `happy acp` argument list. Flags after a `--` separator are passed through
+ * untouched so custom agent commands keep their own flags.
+ */
+export function parseAcpCliFlags(args: string[]): ParsedAcpCliFlags {
+  let startedBy: 'daemon' | 'terminal' | undefined = undefined;
+  let verbose = false;
+  let resumeSessionId: string | undefined = undefined;
+  const acpArgs: string[] = [];
+  let customCommandMode = false;
+  for (let i = 0; i < args.length; i++) {
+    if (!customCommandMode && args[i] === '--started-by') {
+      startedBy = args[++i] as 'daemon' | 'terminal';
+      continue;
+    }
+    if (!customCommandMode && args[i] === '--verbose') {
+      verbose = true;
+      continue;
+    }
+    if (!customCommandMode && args[i] === '--resume') {
+      resumeSessionId = args[++i];
+      continue;
+    }
+    if (args[i] === '--') {
+      customCommandMode = true;
+    }
+    acpArgs.push(args[i]);
+  }
+  return { startedBy, verbose, resumeSessionId, acpArgs };
+}
+
 export function resolveAcpAgentConfig(cliArgs: string[]): ResolvedAcpAgentConfig {
   if (cliArgs.length === 0) {
     throw new Error('Usage: happy acp <agent-name> or happy acp -- <command> [args]');

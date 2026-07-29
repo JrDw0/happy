@@ -18,6 +18,7 @@ import { getToolName } from "./utils/getToolName";
 import { getAskUserQuestionToolCallIds } from "./utils/questionNotification";
 import { cleanupStdinAfterInk } from "@/utils/terminalStdinCleanup";
 import type { MessageParam, ContentBlockParam } from '@anthropic-ai/sdk/resources';
+import { materializeNonImageAttachments } from '@/utils/attachmentFiles';
 
 interface PermissionsField {
     date: number;
@@ -347,6 +348,7 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                             const attachments = msg.attachments ?? [];
                             if (attachments.length > 0) {
                                 const contentBlocks: ContentBlockParam[] = [];
+                                const fileContext = await materializeNonImageAttachments(session.sessionId ?? 'unknown', attachments);
                                 for (const att of attachments) {
                                     // Detect media type from the decrypted bytes' magic header
                                     // rather than trusting the wire-supplied mimeType. iOS image
@@ -357,7 +359,6 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                                     // otherwise skip the attachment with a debug log.
                                     const detected = detectClaudeImageMime(att.data);
                                     if (!detected) {
-                                        logger.debug(`[remote] Skipping unsupported attachment (no magic-byte match): ${att.name}, claimed mimeType=${att.mimeType}`);
                                         continue;
                                     }
                                     contentBlocks.push({
@@ -369,7 +370,8 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                                         },
                                     });
                                 }
-                                contentBlocks.push({ type: 'text' as const, text: msg.message });
+                                const promptText = [msg.message, fileContext.context].filter(Boolean).join('\n\n');
+                                contentBlocks.push({ type: 'text' as const, text: promptText });
                                 logger.debug(`[remote] Combined ${contentBlocks.length - 1} image(s) with text message`);
                                 return {
                                     message: contentBlocks,

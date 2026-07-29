@@ -113,6 +113,7 @@ function buildReconnectEnv(session: ReconnectableHappySession): NodeJS.ProcessEn
         HAPPY_RECONNECT_SEQ: String(session.seq),
         HAPPY_RECONNECT_METADATA_VERSION: String(session.metadataVersion),
         HAPPY_RECONNECT_AGENT_STATE_VERSION: String(session.agentStateVersion),
+        HAPPY_RECONNECT_CUSTOM_TITLE: encodeBase64(new TextEncoder().encode(session.metadata.customTitle ?? '')),
     });
 }
 

@@ -212,6 +212,7 @@ describe('handleResumeCommand', () => {
                 HAPPY_RECONNECT_SEQ: '42',
                 HAPPY_RECONNECT_METADATA_VERSION: '7',
                 HAPPY_RECONNECT_AGENT_STATE_VERSION: '9',
+                HAPPY_RECONNECT_CUSTOM_TITLE: expect.any(String),
             }),
         });
         const spawnedEnv = mocks.mockSpawnHappyCLI.mock.calls[0][1].env;

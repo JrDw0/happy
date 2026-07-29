@@ -25,16 +25,6 @@ export class LocalResumeSessionError extends Error {
     }
 }
 
-function needsFreshMetadata(metadata: Metadata): boolean {
-    if (metadata.flavor === 'codex') {
-        return !metadata.codexThreadId;
-    }
-    if (metadata.flavor === 'claude' || !metadata.flavor) {
-        return !metadata.claudeSessionId;
-    }
-    return false;
-}
-
 async function fetchServerMetadata(
     sessionId: string,
     encryptionKey: Uint8Array,
@@ -98,9 +88,11 @@ export async function resolveLocalReconnectableSession(sessionId: string): Promi
 
     const encryptionKey = decodeBase64(matched.encryptionKey);
     let metadata = parseResumableMetadata(matched.id, matched.metadata);
-    if (needsFreshMetadata(metadata)) {
-        metadata = await fetchServerMetadata(matched.id, encryptionKey, matched.encryptionVariant) ?? metadata;
-    }
+    // Titles are encrypted session metadata and can be edited from another
+    // device even when this machine only has a persisted resume record. Try
+    // the server on every resume so the reconnect child cannot overwrite a
+    // newer remote title; fall back to the local copy while offline.
+    metadata = await fetchServerMetadata(matched.id, encryptionKey, matched.encryptionVariant) ?? metadata;
 
     return {
         id: matched.id,

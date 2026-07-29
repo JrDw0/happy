@@ -68,6 +68,14 @@ describe('sessionEnvironment', () => {
         expect(childEnv).not.toHaveProperty('CODEX_THREAD_ID');
     });
 
+    it('allows an explicit empty title to clear stale metadata', () => {
+        const childEnv = buildSessionChildEnvironment(contaminatedEnvironment(), {
+            HAPPY_RECONNECT_CUSTOM_TITLE: '',
+        });
+
+        expect(childEnv).toHaveProperty('HAPPY_RECONNECT_CUSTOM_TITLE', '');
+    });
+
     it('unsets inherited tmux values without removing an explicit fork value', () => {
         const explicitEnv = { HAPPY_FORK_CODEX_THREAD_ID: 'new-codex-thread' };
         const keysToUnset = sessionEnvironmentKeysToUnset(explicitEnv);

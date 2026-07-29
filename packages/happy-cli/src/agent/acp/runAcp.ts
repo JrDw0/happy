@@ -15,7 +15,7 @@ import { initialMachineMetadata } from '@/daemon/run';
 import { createSessionMetadata } from '@/utils/createSessionMetadata';
 import { setupOfflineReconnection } from '@/utils/setupOfflineReconnection';
 import { notifyDaemonSessionStarted } from '@/daemon/controlClient';
-import { encodeBase64 } from '@/api/encryption';
+import { decodeBase64, encodeBase64 } from '@/api/encryption';
 import { registerKillSessionHandler } from '@/claude/registerKillSessionHandler';
 import { startHappyServer } from '@/claude/utils/startHappyServer';
 import { projectPath } from '@/projectPath';
@@ -29,6 +29,7 @@ import {
   mergeAcpSessionConfigIntoMetadata,
 } from './sessionConfigMetadata';
 import type { SessionConfigOption, SessionModeState, SessionModelState } from '@agentclientprotocol/sdk';
+import { materializeNonImageAttachments } from '@/utils/attachmentFiles';
 
 const TURN_TIMEOUT_MS = 5 * 60 * 1000;
 const ACP_EVENT_PREVIEW_CHARS = 240;
@@ -452,6 +453,8 @@ export async function runAcp(opts: {
   command: string;
   args: string[];
   startedBy?: 'daemon' | 'terminal';
+  /** Resume an existing agent session via ACP session/load */
+  resumeSessionId?: string;
   verbose?: boolean;
 }): Promise<void> {
   const verbose = opts.verbose === true;
@@ -475,6 +478,11 @@ export async function runAcp(opts: {
     startedBy: opts.startedBy,
     sandbox: settings.sandboxConfig,
   });
+  if (process.env.HAPPY_RECONNECT_CUSTOM_TITLE !== undefined) {
+    const customTitle = new TextDecoder().decode(decodeBase64(process.env.HAPPY_RECONNECT_CUSTOM_TITLE)).trim();
+    if (customTitle) metadata.customTitle = customTitle;
+    else delete metadata.customTitle;
+  }
   const response = await api.getOrCreateSession({ tag: sessionTag, metadata, state });
   if (response) {
     logAcp('muted', `Happy Session ID: ${response.id}`);
@@ -544,7 +552,24 @@ export async function runAcp(opts: {
     mcpServers,
     permissionHandler,
     transportHandler: new DefaultTransport(opts.agentName),
+    resumeSessionId: opts.resumeSessionId,
     verbose,
+  });
+
+  session.onFileEvent((fileEvent) => {
+    const ev = fileEvent.content.data.ev;
+    session.trackAttachmentDownload((async () => {
+      try {
+        const data = await session.downloadAndDecryptAttachment(ev.ref);
+        if (!data) return null;
+        return { data, mimeType: ev.mimeType ?? 'application/octet-stream', name: ev.name };
+      } catch (error) {
+        logger.debug(`[${opts.agentName}] Failed to download attachment`, {
+          errorName: error instanceof Error ? error.name : typeof error,
+        });
+        return null;
+      }
+    })());
   });
 
   let thinking = false;
@@ -920,7 +945,8 @@ export async function runAcp(opts: {
         if (typeof batch.mode.model === 'string' && batch.mode.model.length > 0) {
           await switchModelIfRequested(batch.mode.model);
         }
-        await backend.sendPrompt(acpSessionId, batch.message);
+        const fileContext = await materializeNonImageAttachments(opts.resumeSessionId ?? session.sessionId, batch.attachments);
+        await backend.sendPrompt(acpSessionId, [batch.message, fileContext.context].filter(Boolean).join('\n\n'));
         await turnEnded;
         sendEnvelopes(sessionManager.endTurn('completed'));
         session.sendSessionEvent({ type: 'ready' });
