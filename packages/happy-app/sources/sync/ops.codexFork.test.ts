@@ -70,6 +70,7 @@ describe('codex fork ops', () => {
             machineId: 'machine-1',
             directory: '/tmp/project',
             codexThreadId: 'thread-source',
+            customTitle: 'Saved Codex session',
         });
 
         expect(result).toEqual({ type: 'success', sessionId: 'happy-forked' });
@@ -88,6 +89,7 @@ describe('codex fork ops', () => {
                 directory: '/tmp/project',
                 resumeCodexThreadId: 'thread-forked',
                 parentSessionId: 'happy-source',
+                customTitle: 'Saved Codex session',
             }),
         );
         expect(refreshSessions).toHaveBeenCalledTimes(1);

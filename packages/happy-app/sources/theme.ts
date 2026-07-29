@@ -79,7 +79,7 @@ export const lightTheme = {
         //
 
         groupped: {
-            background: Platform.select({ ios: '#F2F2F7', default: '#F5F5F5' }),
+            background: Platform.select({ ios: '#F4F5F7', default: '#F4F5F7' }),
             chevron: Platform.select({ ios: '#C7C7CC', default: '#49454F' }),
             sectionTitle: Platform.select({ ios: '#8E8E93', default: '#49454F' }),
         },
@@ -214,7 +214,7 @@ export const lightTheme = {
         },
 
         // Message View colors
-        userMessageBackground: '#f0eee6',
+        userMessageBackground: '#E7F1FF',
         userMessageText: '#000000',
         agentMessageText: '#000000',
         agentEventText: '#666666',

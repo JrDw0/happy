@@ -15,7 +15,6 @@ import { useNavigateToSession } from '@/hooks/useNavigateToSession';
 import { useHappyAction } from '@/hooks/useHappyAction';
 import { HappyError } from '@/utils/errors';
 import { SessionActionsAnchor, SessionActionsPopover } from './SessionActionsPopover';
-import { useSessionActionAlert } from '@/hooks/useSessionQuickActions';
 import { sessionKill } from '@/sync/ops';
 import { isWorktreePath, getRepoPath, getWorktreeName } from '@/utils/worktree';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
@@ -103,10 +102,13 @@ const SectionHeader = React.memo(({ session, displayPath }: { session: SessionRo
                 <Avatar id={session.avatarId} size={24} flavor={null} />
             </View>
 
-            {/* Path + branch */}
+            {/* Project name, path, and branch */}
             <View style={styles.sectionHeaderContent}>
                 <Text style={styles.sectionHeaderPath} numberOfLines={1}>
                     {repoFolderName}
+                </Text>
+                <Text style={styles.sectionHeaderSubpath} numberOfLines={1}>
+                    {repoDisplayPath}
                 </Text>
                 {hasBranch && (
                     <View style={styles.branchRow}>
@@ -261,11 +263,10 @@ const CompactSessionRow = React.memo(({ session, selected, showBorder }: { sessi
         });
     }, []);
 
-    const showActionAlert = useSessionActionAlert(session.id);
     const menuProps = Platform.OS === 'web' ? {
         onContextMenu: handleContextMenu,
     } as any : {
-        onLongPress: showActionAlert,
+        onLongPress: () => setActionsAnchor({ type: 'point', x: 0, y: 0 }),
     };
 
     const renderLeadingIndicator = () => {
@@ -302,6 +303,7 @@ const CompactSessionRow = React.memo(({ session, selected, showBorder }: { sessi
                 selected && styles.sessionRowSelected
             ]}
             onPress={handlePress}
+            delayLongPress={450}
             {...menuProps}
         >
             <View style={styles.sessionContent}>
@@ -326,27 +328,13 @@ const CompactSessionRow = React.memo(({ session, selected, showBorder }: { sessi
                     <View style={styles.sessionIdentityRow}>
                         <ProviderIcon kind={session.providerKind} size={11} />
                         <Text style={styles.sessionIdentity} numberOfLines={1}>
-                            {session.identityLine}{session.modelName ? ` · ${session.modelName}` : ''}{session.activitySummary ? ` · ${session.activitySummary}` : ''}
+                            {session.identityLine}{session.activitySummary ? ` · ${session.activitySummary}` : ''}
                         </Text>
                     </View>
                 )}
             </View>
         </Pressable>
     );
-
-    if (!swipeEnabled) {
-        return (
-            <>
-                {itemContent}
-                <SessionActionsPopover
-                    anchor={actionsAnchor}
-                    onClose={() => setActionsAnchor(null)}
-                    sessionId={session.id}
-                    visible={!!actionsAnchor}
-                />
-            </>
-        );
-    }
 
     const renderRightActions = () => (
         <Pressable
@@ -362,14 +350,24 @@ const CompactSessionRow = React.memo(({ session, selected, showBorder }: { sessi
     );
 
     return (
-        <Swipeable
-            ref={swipeableRef}
-            renderRightActions={renderRightActions}
-            overshootRight={false}
-            enabled={!archivingSession}
-        >
-            {itemContent}
-        </Swipeable>
+        <>
+            {swipeEnabled ? (
+                <Swipeable
+                    ref={swipeableRef}
+                    renderRightActions={renderRightActions}
+                    overshootRight={false}
+                    enabled={!archivingSession}
+                >
+                    {itemContent}
+                </Swipeable>
+            ) : itemContent}
+            <SessionActionsPopover
+                anchor={actionsAnchor}
+                onClose={() => setActionsAnchor(null)}
+                sessionId={session.id}
+                visible={!!actionsAnchor}
+            />
+        </>
     );
 });
 
@@ -524,6 +522,13 @@ const stylesheet = StyleSheet.create((theme) => ({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 4,
+    },
+    sectionHeaderSubpath: {
+        color: theme.colors.textSecondary,
+        fontSize: 11,
+        lineHeight: 15,
+        ...Typography.default('regular'),
+        flexShrink: 1,
     },
     leadingIndicatorSlot: {
         alignItems: 'center',

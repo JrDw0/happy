@@ -12,8 +12,10 @@ import {
     matchesShortcutChord,
     SESSION_ACTION_SHORTCUTS,
 } from '@/keyboard/shortcuts';
-import { MobileGlassSurface } from './MobileGlass';
-import { AnimatedPopup, LocalBlurHalo } from './AnimatedOverlay';
+import { AnimatedPopup } from './AnimatedOverlay';
+import { ProviderIcon } from './ProviderIcon';
+import { getSessionIdentityLine, formatPathRelativeToHome } from '@/utils/sessionUtils';
+import { t } from '@/text';
 
 export type SessionActionsAnchor =
     | {
@@ -62,12 +64,7 @@ const stylesheet = StyleSheet.create((theme) => ({
     card: {
         borderRadius: 16,
         overflow: 'hidden',
-        backgroundColor: Platform.select({
-            web: theme.colors.surface,
-            ios: theme.colors.glass.overlay,
-            android: theme.colors.glass.backgroundStrong,
-            default: theme.colors.surface,
-        }),
+        backgroundColor: theme.colors.surface,
         borderWidth: Platform.select({ web: 0, default: StyleSheet.hairlineWidth }),
         borderColor: theme.colors.glass.border,
         shadowColor: theme.colors.shadow.color,
@@ -114,6 +111,64 @@ const stylesheet = StyleSheet.create((theme) => ({
         lineHeight: 18,
         ...Typography.default('semiBold'),
     },
+    sessionHeader: {
+        paddingHorizontal: 18,
+        paddingTop: 16,
+        paddingBottom: 14,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: theme.colors.divider,
+    },
+    sessionHeaderKicker: {
+        color: theme.colors.textSecondary,
+        fontSize: 11,
+        lineHeight: 16,
+        ...Typography.default('semiBold'),
+    },
+    sessionHeaderTitle: {
+        marginTop: 3,
+        color: theme.colors.text,
+        fontSize: 17,
+        lineHeight: 23,
+        ...Typography.default('semiBold'),
+    },
+    sessionHeaderMeta: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        marginTop: 7,
+    },
+    sessionHeaderMetaText: {
+        flex: 1,
+        color: theme.colors.textSecondary,
+        fontSize: 12,
+        lineHeight: 17,
+        ...Typography.default(),
+    },
+    sessionHeaderPath: {
+        marginTop: 3,
+        color: theme.colors.textSecondary,
+        fontSize: 12,
+        lineHeight: 17,
+        ...Typography.default(),
+    },
+    sectionLabel: {
+        paddingHorizontal: 18,
+        paddingTop: 11,
+        paddingBottom: 4,
+        color: theme.colors.textSecondary,
+        fontSize: 10,
+        lineHeight: 14,
+        letterSpacing: 0.8,
+        textTransform: 'uppercase',
+        ...Typography.default('semiBold'),
+    },
+    section: {
+        paddingVertical: 4,
+    },
+    sectionDivider: {
+        borderTopWidth: StyleSheet.hairlineWidth,
+        borderTopColor: theme.colors.divider,
+    },
     nativeContainer: {
         flex: 1,
         justifyContent: 'flex-end',
@@ -158,7 +213,7 @@ export function SessionActionsPopover({
             return null;
         }
 
-        const estimatedHeight = actions.length * WEB_MENU_ITEM_HEIGHT;
+        const estimatedHeight = actions.length * WEB_MENU_ITEM_HEIGHT + 116;
         const leftBase = anchor.type === 'point'
             ? anchor.x
             : anchor.x + anchor.width - WEB_MENU_WIDTH;
@@ -210,8 +265,8 @@ export function SessionActionsPopover({
         return null;
     }
 
-    const actionItems = actions.map((action, index) => {
-        const isLast = index === actions.length - 1;
+    const renderAction = (action: SessionActionItem, index: number, items: SessionActionItem[]) => {
+        const isLast = index === items.length - 1;
         const color = action.destructive ? theme.colors.status.error : theme.colors.text;
         const shortcutLabel = formatShortcutChord(
             preferredModifier,
@@ -242,24 +297,56 @@ export function SessionActionsPopover({
                 )}
             </Pressable>
         );
-    });
+    };
+
+    const sections: Array<{ label: string; items: SessionActionItem[] }> = [
+        {
+            label: t('session.actionGroupSession'),
+            items: actions.filter((action) => action.id === 'rename' || action.id === 'details'),
+        },
+        {
+            label: t('session.actionGroupWork'),
+            items: actions.filter((action) => action.id === 'resume' || action.id === 'fork' || action.id === 'duplicate'),
+        },
+        {
+            label: t('session.actionGroupDeveloper'),
+            items: actions.filter((action) => action.id === 'copy-metadata' || action.id === 'copy-metadata-and-logs'),
+        },
+        {
+            label: t('session.actionGroupDanger'),
+            items: actions.filter((action) => action.id === 'archive'),
+        },
+    ].filter((section) => section.items.length > 0);
+
+    const actionGroups = sections.map((section, sectionIndex) => (
+        <View key={section.label} style={[styles.section, sectionIndex > 0 && styles.sectionDivider]}>
+            <Text style={styles.sectionLabel}>{section.label}</Text>
+            {section.items.map((action, index) => renderAction(action, index, section.items))}
+        </View>
+    ));
+
+    const sessionPath = session.metadata?.path
+        ? formatPathRelativeToHome(session.metadata.path, session.metadata.homeDir)
+        : t('status.unknown');
+    const sessionIdentity = getSessionIdentityLine(session);
 
     const nativeContent = (
         <>
-            <LocalBlurHalo borderRadius={18} expansion={14} />
-            <MobileGlassSurface
-                enabled
-                nativeEffect
-                glassEffectStyle="regular"
-                intensity={88}
-                tintColor={theme.colors.glass.overlayTint}
-                style={styles.card}
-            >
+            <View style={styles.card}>
                 {Platform.OS !== 'web' && (
                     <View style={[styles.handle, { backgroundColor: theme.colors.textSecondary }]} />
                 )}
-                {actionItems}
-            </MobileGlassSurface>
+                <View style={styles.sessionHeader}>
+                    <Text style={styles.sessionHeaderKicker}>{t('session.actionSheetTitle')}</Text>
+                    <Text style={styles.sessionHeaderTitle} numberOfLines={1}>{session.metadata?.customTitle || session.metadata?.summary?.text || t('session.newChat')}</Text>
+                    <View style={styles.sessionHeaderMeta}>
+                        <ProviderIcon kind={session.metadata?.provider?.kind ?? session.metadata?.flavor} size={14} />
+                        <Text style={styles.sessionHeaderMetaText} numberOfLines={1}>{sessionIdentity}</Text>
+                    </View>
+                    <Text style={styles.sessionHeaderPath} numberOfLines={1}>{sessionPath}</Text>
+                </View>
+                {actionGroups}
+            </View>
         </>
     );
 
@@ -283,7 +370,16 @@ export function SessionActionsPopover({
                         ]}
                     >
                         <View style={[styles.card, { backgroundColor: theme.colors.header.background }]}>
-                            {actionItems}
+                            <View style={styles.sessionHeader}>
+                                <Text style={styles.sessionHeaderKicker}>{t('session.actionSheetTitle')}</Text>
+                                <Text style={styles.sessionHeaderTitle} numberOfLines={1}>{session.metadata?.customTitle || session.metadata?.summary?.text || t('session.newChat')}</Text>
+                                <View style={styles.sessionHeaderMeta}>
+                                    <ProviderIcon kind={session.metadata?.provider?.kind ?? session.metadata?.flavor} size={14} />
+                                    <Text style={styles.sessionHeaderMetaText} numberOfLines={1}>{sessionIdentity}</Text>
+                                </View>
+                                <Text style={styles.sessionHeaderPath} numberOfLines={1}>{sessionPath}</Text>
+                            </View>
+                            {actionGroups}
                         </View>
                     </View>
                 </View>

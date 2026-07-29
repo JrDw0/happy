@@ -78,10 +78,35 @@ export function useSessionStatus(session: Session): SessionStatus {
  * Returns the last segment of the path, or 'unknown' if no path is available.
  */
 export function getSessionName(session: Session): string {
+    if (session.metadata?.customTitle?.trim()) {
+        return session.metadata.customTitle.trim();
+    }
     if (session.metadata?.summary) {
         return session.metadata.summary.text;
     }
     return t('session.newChat');
+}
+
+function capitalize(value: string): string {
+    return value.length > 0 ? value.charAt(0).toUpperCase() + value.slice(1) : value;
+}
+
+/** Compact agent/provider/model identity for the session list. */
+export function getSessionIdentityLine(session: Session): string {
+    const metadata = session.metadata;
+    if (!metadata) return t('status.unknown');
+
+    const agent = metadata.client?.name
+        ?? (metadata.flavor ? capitalize(metadata.flavor) : null)
+        ?? t('status.unknown');
+    const provider = metadata.provider?.name ?? metadata.provider?.kind ?? null;
+    const model = metadata.model?.id
+        ?? metadata.currentModelCode
+        ?? metadata.models?.find((item) => item.code === metadata.currentModelCode)?.name
+        ?? (metadata.flavor === 'claude' ? 'opus' : null)
+        ?? (metadata.flavor === 'codex' ? 'gpt-5.5' : null);
+
+    return [agent, provider, model].filter(Boolean).join(' · ');
 }
 
 /**

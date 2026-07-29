@@ -350,9 +350,13 @@ export const SessionView = React.memo((props: { id: string }) => {
         const folderName = pathSegments?.[pathSegments.length - 1];
         const sessionName = getSessionName(session);
         const rigIdentity = getRigIdentity(session.metadata);
+        const projectPath = session.metadata?.path
+            ? formatPathRelativeToHome(session.metadata.path, session.metadata.homeDir)
+            : undefined;
         return {
             title: sessionName,
             folderName,
+            projectPath,
             isConnected,
             identityLine: rigIdentity
                 ? `${rigIdentity.clientName} · ${rigIdentity.providerName}${rigIdentity.modelName ? ` — ${rigIdentity.modelName}` : ''}`
@@ -378,7 +382,7 @@ export const SessionView = React.memo((props: { id: string }) => {
 
     const mainContent = (
         <>
-            <MobileGlassBackdrop enabled={deviceType === 'phone' && Platform.OS !== 'web'} />
+            <MobileGlassBackdrop enabled={false} />
             {/* Status bar shadow for landscape mode */}
             {isLandscape && deviceType === 'phone' && (
                 <View style={{
@@ -404,6 +408,7 @@ export const SessionView = React.memo((props: { id: string }) => {
             <View
                 style={{
                     flex: 1,
+                    backgroundColor: theme.colors.groupped.background,
                     paddingTop: !(isLandscape && deviceType === 'phone' && Platform.OS !== 'web')
                         ? contentRunsUnderHeader
                             ? 0
@@ -445,6 +450,7 @@ export const SessionView = React.memo((props: { id: string }) => {
                     <ChatHeaderView
                         title={headerProps.title}
                         folderName={headerProps.folderName}
+                        projectPath={headerProps.projectPath}
                         isConnected={headerProps.isConnected}
                         backdropVisible={headerBackdropVisible}
                         identityLine={headerProps.identityLine}
@@ -715,7 +721,7 @@ export function SessionViewLoaded({
 
     // Image attachment state (expImageUpload feature flag)
     const expImageUpload = useSetting('expImageUpload');
-    const { selectedImages, pickImages, removeImage, clearImages, addImages } = useImagePicker();
+    const { selectedImages, pickImages, pickMedia, takePhoto, pickFiles, removeImage, clearImages, addImages } = useImagePicker();
     const canUseAttachments = rigCanUseAttachments(session.metadata);
     React.useEffect(() => {
         if (!canUseAttachments && selectedImages.length > 0) {
@@ -982,6 +988,9 @@ export function SessionViewLoaded({
             onFileViewerPress={experiments && !isTablet && rigCanBrowseFiles(session.metadata) && rigCanReadFiles(session.metadata) ? handleFileViewerPress : undefined}
             selectedImages={expImageUpload && canUseAttachments ? selectedImages : undefined}
             onPickImages={expImageUpload && canUseAttachments ? pickImages : undefined}
+            onPickMedia={expImageUpload && canUseAttachments ? pickMedia : undefined}
+            onTakePhoto={expImageUpload && canUseAttachments ? takePhoto : undefined}
+            onPickFiles={expImageUpload && canUseAttachments ? pickFiles : undefined}
             onRemoveImage={expImageUpload && canUseAttachments ? removeImage : undefined}
             onAddImages={expImageUpload && canUseAttachments ? addImages : undefined}
             autocompletePrefixes={AGENT_INPUT_AUTOCOMPLETE_PREFIXES}

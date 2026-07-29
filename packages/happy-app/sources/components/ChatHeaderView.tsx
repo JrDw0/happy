@@ -20,6 +20,8 @@ interface ChatHeaderViewProps {
     title: string;
     /** Project folder name (last path segment) */
     folderName?: string;
+    /** Project path shown below the session title, abbreviated by the client. */
+    projectPath?: string;
     /** Optional client/provider/model identity shown below the session title. */
     identityLine?: string;
     /** Extra path segment appended to the title with a separator (used for the file-view overlay). */
@@ -37,6 +39,7 @@ interface ChatHeaderViewProps {
 export const ChatHeaderView: React.FC<ChatHeaderViewProps> = ({
     title,
     folderName,
+    projectPath,
     identityLine,
     extraPathSegment,
     rightSlot,
@@ -51,9 +54,13 @@ export const ChatHeaderView: React.FC<ChatHeaderViewProps> = ({
     const isTablet = useIsTablet();
     const showBackButton = !isTablet && !!onBackPress;
     const hasExtra = !!extraPathSegment;
-    const glassEnabled = !isTablet && Platform.OS !== 'web' && !isRunningOnMac();
+    // Keep the session header as an opaque, readable surface. The chat body
+    // already provides the visual depth; transparency here makes title and
+    // project metadata compete with scrolled content.
+    const glassEnabled = false;
     const contentHeight = glassEnabled ? Math.max(headerHeight, MOBILE_GLASS_HEADER_HEIGHT) : headerHeight;
-    const showFolderSubtitle = !!folderName && folderName !== title;
+    const projectLabel = projectPath || folderName;
+    const showFolderSubtitle = !!projectLabel && projectLabel !== title;
     const backdropOpacity = React.useRef(new Animated.Value(backdropVisible ? 1 : 0)).current;
     const [backdropMounted, setBackdropMounted] = React.useState(backdropVisible);
 
@@ -91,15 +98,15 @@ export const ChatHeaderView: React.FC<ChatHeaderViewProps> = ({
                             onPress={onTitlePress}
                             disabled={!onTitlePress}
                         >
-                            {folderName ? (
+                            {projectLabel ? (
                                 <View style={styles.webTitleRow}>
                                     <Text
                                         numberOfLines={1}
                                         style={[styles.webFolderName, { color: theme.colors.textSecondary, ...Typography.default() }]}
                                     >
-                                        {folderName}
+                                        {projectLabel}
                                     </Text>
-                                    {title && title !== folderName && (
+                                    {title && title !== projectLabel && (
                                         <>
                                             <Text style={[styles.webSeparator, { color: theme.colors.textSecondary, ...Typography.default() }]}>/</Text>
                                             <Text
@@ -211,17 +218,17 @@ export const ChatHeaderView: React.FC<ChatHeaderViewProps> = ({
                             ellipsizeMode="tail"
                             style={[styles.title, { color: theme.colors.header.tint, ...Typography.default('semiBold') }]}
                         >
-                            {title || folderName}
+                            {title || projectLabel}
                         </Text>
                         {(showFolderSubtitle || hasExtra) && (
                             <View style={styles.subtitleRow}>
                                 {showFolderSubtitle && (
                                     <Text
                                         numberOfLines={1}
-                                        ellipsizeMode="tail"
+                                        ellipsizeMode="middle"
                                         style={[styles.folderName, { color: theme.colors.textSecondary, ...Typography.default() }]}
                                     >
-                                        {folderName}
+                                        {projectLabel}
                                     </Text>
                                 )}
                                 {showFolderSubtitle && hasExtra && (

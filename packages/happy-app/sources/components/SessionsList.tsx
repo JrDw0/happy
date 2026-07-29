@@ -18,7 +18,6 @@ import { UpdateBanner } from './UpdateBanner';
 import { layout } from './layout';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
 import { SessionActionsAnchor, SessionActionsPopover } from './SessionActionsPopover';
-import { useSessionActionAlert } from '@/hooks/useSessionQuickActions';
 import { useSettingMutable } from '@/sync/storage';
 import { t } from '@/text';
 import { SessionShortcutHintBadge } from './ShortcutHints';
@@ -463,11 +462,10 @@ const SessionItem = React.memo(({ session, selected, isFirst, isLast, isSingle }
         });
     }, []);
 
-    const showActionAlert = useSessionActionAlert(session.id);
     const menuProps = Platform.OS === 'web' ? {
         onContextMenu: handleContextMenu,
     } as any : {
-        onLongPress: showActionAlert,
+            onLongPress: () => setActionsAnchor({ type: 'point', x: 0, y: 0 }),
     };
 
     return (
@@ -486,6 +484,7 @@ const SessionItem = React.memo(({ session, selected, isFirst, isLast, isSingle }
                         isLast ? styles.sessionItemLast : {}
             ]}
             onPress={handlePress}
+            delayLongPress={450}
             {...menuProps}
         >
             <View style={styles.avatarContainer}>
@@ -521,17 +520,12 @@ const SessionItem = React.memo(({ session, selected, isFirst, isLast, isSingle }
                             {session.identityLine}
                         </Text>
                     </View>
-                ) : session.path ? (
-                    <View style={styles.sessionSubtitleRow}>
-                        <Text style={styles.sessionSubtitle} numberOfLines={1}>
-                            {session.path.split(/[/\\]/).filter(Boolean).pop()}
-                        </Text>
-                    </View>
-                ) : (
+                ) : null}
+                {!session.identityLine ? (
                     <Text style={styles.sessionSubtitle} numberOfLines={1}>
                         {session.subtitle}
                     </Text>
-                )}
+                ) : null}
 
                 <View style={styles.statusRow}>
                     <View style={styles.statusDotContainer}>
@@ -546,7 +540,7 @@ const SessionItem = React.memo(({ session, selected, isFirst, isLast, isSingle }
                 </View>
             </View>
         </Pressable>
-        {Platform.OS === 'web' && (
+        {(
             <SessionActionsPopover
                 anchor={actionsAnchor}
                 onClose={() => setActionsAnchor(null)}

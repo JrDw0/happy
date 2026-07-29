@@ -8,7 +8,7 @@ import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { Avatar } from '@/components/Avatar';
 import { useSession, useIsDataReady } from '@/sync/storage';
-import { getSessionName, useSessionStatus, formatOSPlatform, formatPathRelativeToHome, getSessionAvatarId, getResumeCommand } from '@/utils/sessionUtils';
+import { getSessionName, getSessionIdentityLine, useSessionStatus, formatOSPlatform, formatPathRelativeToHome, getSessionAvatarId, getResumeCommand } from '@/utils/sessionUtils';
 import * as Clipboard from 'expo-clipboard';
 import { Modal } from '@/modal';
 import { sessionArchive, sessionKill, sessionDelete } from '@/sync/ops';
@@ -137,6 +137,7 @@ function SessionInfoContent({ session }: { session: Session }) {
         forking,
         forkSession,
         openDuplicateSheet,
+        renameSession,
         resumeSession,
         resumeSessionSubtitle,
     } = useSessionQuickActions(session);
@@ -299,6 +300,19 @@ function SessionInfoContent({ session }: { session: Session }) {
 
                 {/* Session Details */}
                 <ItemGroup>
+                    <Item
+                        title={t('session.rename')}
+                        subtitle={session.metadata?.customTitle || t('session.renamePlaceholder')}
+                        icon={<Ionicons name="create-outline" size={29} color="#5856D6" />}
+                        onPress={renameSession}
+                    />
+                    <Item
+                        title={t('session.sessionIdentity')}
+                        subtitle={getSessionIdentityLine(session)}
+                        detail={session.metadata?.customTitle ? sessionName : undefined}
+                        icon={<Ionicons name="sparkles-outline" size={29} color="#5856D6" />}
+                        showChevron={false}
+                    />
                     <Item
                         title={t('sessionInfo.happySessionId')}
                         subtitle={`${session.id.substring(0, 8)}...${session.id.substring(session.id.length - 8)}`}

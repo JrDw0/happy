@@ -76,3 +76,8 @@ happy-workspaces/
 
 # third party tools
 .supervibe/
+.agents/
+
+# local APK inspection artifacts
+.apk-check/
+tmp_diff_reg.txt

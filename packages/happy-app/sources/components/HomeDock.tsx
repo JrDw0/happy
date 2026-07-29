@@ -40,6 +40,7 @@ import {
 import type { NewSessionAgentType } from '@/sync/persistence';
 import { useImagePicker } from '@/hooks/useImagePicker';
 import { Modal } from '@/modal';
+import { AttachmentActionMenu } from './AttachmentActionMenu';
 
 export const MOBILE_HOME_DOCK_CONTENT_INSET = 108;
 
@@ -70,7 +71,7 @@ const styles = StyleSheet.create((theme) => ({
         height: 56,
         alignSelf: 'center',
         borderRadius: 28,
-        overflow: 'hidden',
+        overflow: 'visible',
         borderWidth: StyleSheet.hairlineWidth,
         borderColor: theme.colors.glass.border,
         backgroundColor: Platform.select({
@@ -127,7 +128,7 @@ const styles = StyleSheet.create((theme) => ({
         height: 126,
         alignSelf: 'center',
         borderRadius: 30,
-        overflow: 'hidden',
+        overflow: 'visible',
         borderWidth: StyleSheet.hairlineWidth,
         borderColor: theme.colors.glass.border,
         backgroundColor: Platform.select({
@@ -144,7 +145,7 @@ const styles = StyleSheet.create((theme) => ({
         maxWidth: layout.maxWidth,
         alignSelf: 'center',
         borderRadius: 30,
-        overflow: 'hidden',
+        overflow: 'visible',
     },
     focusedComposerAnchored: {
         position: 'absolute',
@@ -239,7 +240,7 @@ const styles = StyleSheet.create((theme) => ({
         marginLeft: 8,
     },
     sendButtonActive: {
-        backgroundColor: '#F5F5F5',
+        backgroundColor: '#000000',
     },
     modalRoot: {
         flex: 1,
@@ -470,7 +471,8 @@ export const HomeDock = React.memo(({
     const [isFocused, setIsFocused] = React.useState(false);
     const [focusModeVisible, setFocusModeVisible] = React.useState(false);
     const expImageUpload = useSetting('expImageUpload');
-    const { selectedImages, pickImages, removeImage, clearImages } = useImagePicker();
+    const { selectedImages, pickImages, pickMedia, takePhoto, pickFiles, removeImage, clearImages } = useImagePicker();
+    const [attachmentMenuOpen, setAttachmentMenuOpen] = React.useState(false);
     const agentType = useNewSessionDraft((state) => state.agentType);
     const selectedMachineId = useNewSessionDraft((state) => state.selectedMachineId);
     const selectedPath = useNewSessionDraft((state) => state.selectedPath);
@@ -962,7 +964,28 @@ export const HomeDock = React.memo(({
             glassEffectStyle="regular"
             style={styles.composerSurface}
         >
+            {attachmentMenuOpen && (
+                <AttachmentActionMenu
+                    onTakePhoto={() => void takePhoto()}
+                    onPickMedia={() => void pickMedia()}
+                    onPickFiles={() => void pickFiles()}
+                    onClose={() => setAttachmentMenuOpen(false)}
+                />
+            )}
             <View style={styles.composerContent}>
+                {expImageUpload && (
+                    <BubblePressable
+                        onPress={() => setAttachmentMenuOpen((open) => !open)}
+                        style={styles.sideButton}
+                        accessibilityRole="button"
+                        accessibilityLabel="Add attachment"
+                    >
+                        <Ionicons name="add" size={26} color={theme.colors.text} />
+                    </BubblePressable>
+                )}
+                {expImageUpload && selectedImages.length > 0 && (
+                    <AgentInputAttachmentStrip images={selectedImages} onRemove={removeImage} />
+                )}
                 {activateOnPress ? (
                     <Pressable onPress={activateOnPress} style={styles.inputEntry}>
                         <Text
@@ -1001,7 +1024,7 @@ export const HomeDock = React.memo(({
                         <Ionicons
                             name="arrow-up"
                             size={16}
-                            color={canSubmit ? '#111111' : theme.colors.textSecondary}
+                            color={canSubmit ? '#FFFFFF' : theme.colors.textSecondary}
                         />
                     )}
                 </BubblePressable>
@@ -1036,6 +1059,14 @@ export const HomeDock = React.memo(({
                     selectedImages.length > 0 && styles.focusedComposerSurfaceWithAttachments,
                 ]}
             >
+                {attachmentMenuOpen && (
+                    <AttachmentActionMenu
+                        onTakePhoto={() => void takePhoto()}
+                        onPickMedia={() => void pickMedia()}
+                        onPickFiles={() => void pickFiles()}
+                        onClose={() => setAttachmentMenuOpen(false)}
+                    />
+                )}
                 <View style={styles.focusedComposerContent}>
                     <Animated.View style={[styles.focusedInputReveal, focusedInputRevealStyle]}>
                         {expImageUpload && (
@@ -1057,7 +1088,7 @@ export const HomeDock = React.memo(({
                     <Animated.View style={[styles.focusedComposerActions, focusedActionsRevealStyle]}>
                         {expImageUpload && (
                             <BubblePressable
-                                onPress={() => void pickImages()}
+                                onPress={() => setAttachmentMenuOpen((open) => !open)}
                                 style={styles.sideButton}
                                 accessibilityRole="button"
                                 accessibilityLabel="Add image"
@@ -1065,6 +1096,18 @@ export const HomeDock = React.memo(({
                                 <Ionicons name="add" size={26} color={theme.colors.text} />
                             </BubblePressable>
                         )}
+                        <BubblePressable
+                            onPress={() => {
+                                const next = prompt.startsWith('/') ? prompt : `/${prompt}`;
+                                onPromptChange(next);
+                                focusedInputRef.current?.focus();
+                            }}
+                            style={styles.sideButton}
+                            accessibilityRole="button"
+                            accessibilityLabel="Command"
+                        >
+                            <Text style={{ color: theme.colors.text, fontSize: 26, lineHeight: 28 }}>/</Text>
+                        </BubblePressable>
                         <NativeSettingsMenu groups={gearSettingsGroups} style={styles.nativeGearMenu}>
                             <View style={styles.sideButton}>
                                 <Ionicons name="settings-outline" size={20} color={theme.colors.text} />
@@ -1112,7 +1155,7 @@ export const HomeDock = React.memo(({
                             <Ionicons
                                 name="arrow-up"
                                 size={16}
-                                color={canSubmit ? '#111111' : theme.colors.textSecondary}
+                                color={canSubmit ? '#FFFFFF' : theme.colors.textSecondary}
                             />
                         )}
                         </BubblePressable>

@@ -6,6 +6,7 @@ export type ClaudeForkSource = {
     machineId: string;
     directory: string;
     claudeSessionId: string;
+    customTitle?: string;
 };
 
 export type CodexForkSource = {
@@ -14,6 +15,7 @@ export type CodexForkSource = {
     machineId: string;
     directory: string;
     codexThreadId: string;
+    customTitle?: string;
 };
 
 export type ForkSource = ClaudeForkSource | CodexForkSource;
@@ -40,6 +42,7 @@ export function getSessionForkSource(session: Session): ForkSource | null {
             machineId,
             directory,
             codexThreadId,
+            customTitle: session.metadata?.customTitle,
         };
     }
 
@@ -53,5 +56,6 @@ export function getSessionForkSource(session: Session): ForkSource | null {
         machineId,
         directory,
         claudeSessionId,
+        customTitle: session.metadata?.customTitle,
     };
 }

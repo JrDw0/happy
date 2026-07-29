@@ -22,6 +22,7 @@ export interface NavigatorPlatformLike {
 }
 
 export type SessionActionShortcutId =
+    | 'rename'
     | 'details'
     | 'resume'
     | 'fork'
@@ -41,6 +42,7 @@ export interface ShortcutChord {
 }
 
 export const SESSION_ACTION_SHORTCUTS: Readonly<Record<SessionActionShortcutId, ShortcutChord>> = {
+    rename: { key: 'r', code: 'KeyR', keyLabel: 'R', shiftKey: true },
     details: { key: 'o', code: 'KeyO', keyLabel: 'O', altKey: true },
     resume: { key: 'r', code: 'KeyR', keyLabel: 'R', altKey: true },
     fork: { key: 'f', code: 'KeyF', keyLabel: 'F', altKey: true },
