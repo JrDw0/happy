@@ -311,6 +311,8 @@ export const es: TranslationStructure = {
 
     session: {
         inputPlaceholder: 'Escriba un mensaje ...',
+        rename: 'Renombrar sesión', renameTitle: 'Renombrar sesión', renameMessage: 'Elige un título para esta sesión.', renamePlaceholder: 'Título de sesión', renameFailed: 'No se pudo renombrar la sesión',
+        actionSheetTitle: 'Acciones de sesión', actionGroupSession: 'Sesión', actionGroupWork: 'Continuar trabajo', actionGroupDeveloper: 'Desarrollador', actionGroupDanger: 'Zona peligrosa', sessionIdentity: 'Agente / proveedor / modelo',
         inactiveArchived: 'Esta sesión está inactiva.',
         resumeFromTerminal: 'Para reanudarla desde la terminal:',
         newChat: 'Chat nuevo',
@@ -888,6 +890,28 @@ export const es: TranslationStructure = {
         deleteConfirmTitle: '¿Eliminar esta máquina?',
         deleteConfirmMessage: 'La máquina se eliminará de tu cuenta. El historial de sesiones se conservará, pero no podrás iniciar nuevas sesiones hasta que vuelvas a conectar el daemon.',
         deleteFailed: 'No se pudo eliminar la máquina.',
+        aiSessionHistory: 'Historial de sesiones de IA',
+        aiSessionHistorySubtitle: 'Explora y reanuda las sesiones de IA guardadas en esta máquina',
+    },
+
+    providerSessions: {
+        title: 'Sesiones de IA',
+        searchPlaceholder: 'Buscar sesiones...',
+        filterAll: 'Todas',
+        activeInHappy: 'Activa en Happy',
+        empty: 'No se encontraron sesiones de IA en esta máquina',
+        loadFailed: 'No se pudieron cargar las sesiones',
+        notSupported: 'El Happy CLI de esta máquina no admite el historial de sesiones. Actualiza con `npm install -g happy-coder@latest`.',
+        machineNotFound: 'Máquina no encontrada',
+        notResumable: 'Esta sesión no se puede reanudar',
+        resumeTitle: '¿Reanudar sesión?',
+        resumeMessage: ({ title }: { title: string }) => `¿Reanudar "${title}" como una nueva sesión de Happy?`,
+        resumeWarning: 'Si la sesión original sigue abierta en otro lugar, reanudarla aquí puede causar conflictos.',
+        resume: 'Reanudar',
+        missingDirectoryTitle: 'Directorio del proyecto',
+        missingDirectoryMessage: 'Esta sesión no tiene un directorio registrado. Introduce el directorio donde reanudarla.',
+        resumeFailed: 'No se pudo reanudar la sesión',
+        sortRecent: 'Recientes', sortCreated: 'Creadas', sortProject: 'Proyecto', dateAll: 'Todas', dateToday: 'Hoy', date7Days: '7 días', date30Days: '30 días', date90Days: '90 días', detailEmpty: 'No hay mensajes en esta sesión', loadEarlier: 'Cargar mensajes anteriores', openInHappy: 'Abrir en Happy',
     },
 
     message: {
@@ -1028,6 +1052,12 @@ export const es: TranslationStructure = {
     },
 
     imageUpload: {
+        cameraPermissionTitle: 'Camera Access',
+        cameraPermissionMessage: 'Allow access to your camera to take a photo for this message.',
+        takePhoto: 'Take Photo',
+        chooseMedia: 'Choose Photos & Videos',
+        addFile: 'Add File',
+        command: 'Command',
         permissionTitle: 'Acceso a la biblioteca de fotos',
         permissionMessage: 'Permite el acceso a tu biblioteca de fotos para adjuntar imágenes a los mensajes.',
         limitTitle: 'Límite de imágenes alcanzado',

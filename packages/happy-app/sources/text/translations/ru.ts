@@ -439,6 +439,8 @@ export const ru: TranslationStructure = {
 
     session: {
         inputPlaceholder: 'Введите сообщение...',
+        rename: 'Переименовать сессию', renameTitle: 'Переименовать сессию', renameMessage: 'Выберите заголовок для этой сессии.', renamePlaceholder: 'Заголовок сессии', renameFailed: 'Не удалось переименовать сессию',
+        actionSheetTitle: 'Действия сессии', actionGroupSession: 'Сессия', actionGroupWork: 'Продолжить работу', actionGroupDeveloper: 'Разработка', actionGroupDanger: 'Опасные действия', sessionIdentity: 'Агент / провайдер / модель',
         inactiveArchived: 'Эта сессия неактивна.',
         resumeFromTerminal: 'Чтобы возобновить её из терминала:',
         newChat: 'Новый чат',
@@ -892,6 +894,28 @@ export const ru: TranslationStructure = {
         deleteConfirmTitle: 'Удалить эту машину?',
         deleteConfirmMessage: 'Машина будет удалена из вашего аккаунта. История сессий сохраняется, но вы больше не сможете запускать новые сессии, пока не подключите демон заново.',
         deleteFailed: 'Не удалось удалить машину.',
+        aiSessionHistory: 'История ИИ-сессий',
+        aiSessionHistorySubtitle: 'Просмотр и возобновление ИИ-сессий на этой машине',
+    },
+
+    providerSessions: {
+        title: 'ИИ-сессии',
+        searchPlaceholder: 'Поиск сессий...',
+        filterAll: 'Все',
+        activeInHappy: 'Активна в Happy',
+        empty: 'На этой машине не найдено ИИ-сессий',
+        loadFailed: 'Не удалось загрузить сессии',
+        notSupported: 'Happy CLI на этой машине не поддерживает историю сессий. Обновите: `npm install -g happy-coder@latest`.',
+        machineNotFound: 'Машина не найдена',
+        notResumable: 'Эту сессию нельзя возобновить',
+        resumeTitle: 'Возобновить сессию?',
+        resumeMessage: ({ title }: { title: string }) => `Возобновить «${title}» как новую сессию Happy?`,
+        resumeWarning: 'Если исходная сессия всё ещё открыта в другом месте, возобновление может привести к конфликтам.',
+        resume: 'Возобновить',
+        missingDirectoryTitle: 'Каталог проекта',
+        missingDirectoryMessage: 'У этой сессии не записан каталог. Введите каталог для возобновления.',
+        resumeFailed: 'Не удалось возобновить сессию',
+        sortRecent: 'Недавние', sortCreated: 'Созданные', sortProject: 'Проект', dateAll: 'Все', dateToday: 'Сегодня', date7Days: '7 дней', date30Days: '30 дней', date90Days: '90 дней', detailEmpty: 'В этой сессии нет сообщений', loadEarlier: 'Загрузить ранние сообщения', openInHappy: 'Открыть в Happy',
     },
 
     message: {
@@ -1056,6 +1080,12 @@ export const ru: TranslationStructure = {
     },
 
     imageUpload: {
+        cameraPermissionTitle: 'Camera Access',
+        cameraPermissionMessage: 'Allow access to your camera to take a photo for this message.',
+        takePhoto: 'Take Photo',
+        chooseMedia: 'Choose Photos & Videos',
+        addFile: 'Add File',
+        command: 'Command',
         permissionTitle: 'Доступ к библиотеке фото',
         permissionMessage: 'Разрешите доступ к вашей библиотеке фото, чтобы прикреплять изображения к сообщениям.',
         limitTitle: 'Достигнут лимит изображений',

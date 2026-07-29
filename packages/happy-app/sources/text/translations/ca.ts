@@ -311,6 +311,8 @@ export const ca: TranslationStructure = {
 
     session: {
         inputPlaceholder: 'Escriu un missatge...',
+        rename: 'Rename session', renameTitle: 'Rename session', renameMessage: 'Choose a title for this session.', renamePlaceholder: 'Session title', renameFailed: 'Failed to rename session',
+        actionSheetTitle: 'Session actions', actionGroupSession: 'Session', actionGroupWork: 'Continue work', actionGroupDeveloper: 'Developer', actionGroupDanger: 'Danger zone', sessionIdentity: 'Agent / provider / model',
         inactiveArchived: 'Aquesta sessió està inactiva.',
         resumeFromTerminal: 'Per reprendre-la des del terminal:',
         newChat: 'Nou xat',
@@ -696,7 +698,13 @@ export const ca: TranslationStructure = {
         bypassToken: 'Connexió directa',
         bypassTokenSubtitle: 'Omet el servidor de Happy, connecta directament a ElevenLabs',
         promptGuideTitle: 'Guia de prompt de l\'agent',
-        promptGuideDescription: 'El teu agent d\'ElevenLabs necessita:\n\n• Eina: messageClaudeCode — paràmetre: message (string). Envia un missatge a la sessió de codi activa.\n• Eina: processPermissionRequest — paràmetre: decision ("allow" o "deny"). Aprova o denega un permís d\'eina pendent.\n• Variable dinàmica: {{initialConversationContext}} — rep l\'historial i el context de la sessió en iniciar.\n\nL\'agent actua com a pont de veu entre l\'usuari i els agents de codi. Ha de ser concís, respondre només quan se li parla i informar quan un agent de codi acaba la feina.',
+        promptGuideDescription: `El teu agent d'ElevenLabs necessita:
+
+• Eina: messageClaudeCode — paràmetre: message (string). Envia un missatge a la sessió de codi activa.
+• Eina: processPermissionRequest — paràmetre: decision ("allow" o "deny"). Aprova o denega un permís d'eina pendent.
+• Variable dinàmica: {{initialConversationContext}} — rep l'historial i el context de la sessió en iniciar.
+
+L'agent actua com a pont de veu entre l'usuari i els agents de codi. Ha de ser concís, respondre només quan se li parla i informar quan un agent de codi acaba la feina.`,
         usageTitle: 'Ús (últims 30 dies)',
         usageFooter: 'Temps de veu utilitzat en els últims 30 dies. Nivell gratuït: 20 min. Subscrit: 5 hores. Màx. 100 converses al mes.',
         usageLabel: 'Temps de veu',
@@ -888,6 +896,28 @@ export const ca: TranslationStructure = {
         deleteConfirmTitle: 'Eliminar aquesta màquina?',
         deleteConfirmMessage: 'La màquina s\'eliminarà del teu compte. L\'historial de sessions es conservarà, però no podràs iniciar noves sessions fins que tornis a connectar el dimoni.',
         deleteFailed: 'No s\'ha pogut eliminar la màquina.',
+        aiSessionHistory: 'Historial de sessions d\'IA',
+        aiSessionHistorySubtitle: 'Explora i reprèn les sessions d\'IA desades en aquesta màquina',
+    },
+
+    providerSessions: {
+        title: 'Sessions d\'IA',
+        searchPlaceholder: 'Cerca sessions...',
+        filterAll: 'Totes',
+        activeInHappy: 'Activa a Happy',
+        empty: 'No s\'han trobat sessions d\'IA en aquesta màquina',
+        loadFailed: 'No s\'han pogut carregar les sessions',
+        notSupported: 'El Happy CLI d\'aquesta màquina no admet l\'historial de sessions. Actualitza amb `npm install -g happy-coder@latest`.',
+        machineNotFound: 'Màquina no trobada',
+        notResumable: 'Aquesta sessió no es pot reprendre',
+        resumeTitle: 'Reprendre la sessió?',
+        resumeMessage: ({ title }: { title: string }) => `Reprendre "${title}" com una nova sessió de Happy?`,
+        resumeWarning: 'Si la sessió original encara està oberta en un altre lloc, reprendre-la aquí pot causar conflictes.',
+        resume: 'Reprèn',
+        missingDirectoryTitle: 'Directori del projecte',
+        missingDirectoryMessage: 'Aquesta sessió no té cap directori registrat. Introdueix el directori on reprendre-la.',
+        resumeFailed: 'No s\'ha pogut reprendre la sessió',
+        sortRecent: 'Recents', sortCreated: 'Creats', sortProject: 'Projecte', dateAll: 'Tots', dateToday: 'Avui', date7Days: '7 dies', date30Days: '30 dies', date90Days: '90 dies', detailEmpty: 'No hi ha missatges en aquesta sessió', loadEarlier: 'Carrega missatges anteriors', openInHappy: 'Obre a Happy',
     },
 
     message: {
@@ -1027,6 +1057,12 @@ export const ca: TranslationStructure = {
     },
 
     imageUpload: {
+        cameraPermissionTitle: 'Camera Access',
+        cameraPermissionMessage: 'Allow access to your camera to take a photo for this message.',
+        takePhoto: 'Take Photo',
+        chooseMedia: 'Choose Photos & Videos',
+        addFile: 'Add File',
+        command: 'Command',
         permissionTitle: 'Accés a la biblioteca de fotos',
         permissionMessage: "Permet l'accés a la teva biblioteca de fotos per adjuntar imatges als missatges.",
         limitTitle: "Límit d'imatges assolit",

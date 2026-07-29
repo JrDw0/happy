@@ -157,10 +157,12 @@ export interface SpawnSessionOptions {
     directory: string;
     approvedNewDirectoryCreation?: boolean;
     token?: string;
-    agent?: 'codex' | 'claude' | 'gemini' | 'openclaw' | 'agy';
+    agent?: 'codex' | 'claude' | 'gemini' | 'openclaw' | 'agy' | 'opencode';
     permissionMode?: string;
     modelMode?: string;
     effortLevel?: string;
+    /** User-defined title to preserve when spawning a resumed provider session. */
+    customTitle?: string;
     /**
      * If set, the daemon spawns the agent with `--resume <id>` so the new
      * Happy session attaches to a pre-existing on-disk Claude conversation
@@ -172,6 +174,11 @@ export interface SpawnSessionOptions {
      * session attaches to an app-server thread created by fork / duplicate.
      */
     resumeCodexThreadId?: string;
+    /**
+     * If set, the daemon spawns `happy acp opencode --resume <id>` so the new
+     * Happy session loads an existing OpenCode session via ACP session/load.
+     */
+    resumeOpenCodeSessionId?: string;
     /** Happy session id this fork was branched from (lineage). */
     parentSessionId?: string;
     /** Happy message id used as the rewind point (only set for "duplicate"). */
@@ -230,6 +237,64 @@ export interface ResumeSessionOptions {
     sessionId: string;
 }
 
+// Provider session history (remote machine on-disk AI sessions)
+export type ProviderSessionProvider = 'claude' | 'codex' | 'opencode';
+
+export interface ProviderSessionMeta {
+    provider: ProviderSessionProvider;
+    /** claude sessionId / codex threadId / opencode session id */
+    sessionId: string;
+    title?: string;
+    summary?: string;
+    /** Working directory of the session — used as spawn directory when resuming. */
+    projectDir?: string;
+    createdAt?: number;
+    lastActiveAt?: number;
+    resumable: boolean;
+}
+
+export type ProviderSessionSortBy = 'lastActiveAt' | 'createdAt' | 'projectDir';
+export type ProviderSessionSortOrder = 'asc' | 'desc';
+
+export interface ListProviderSessionsRequest {
+    providers?: ProviderSessionProvider[];
+    query?: string;
+    /** Sort key; defaults to lastActiveAt */
+    sortBy?: ProviderSessionSortBy;
+    /** Sort direction; defaults to desc (projectDir sorts ascending by name) */
+    sortOrder?: ProviderSessionSortOrder;
+    /** Lower bound (inclusive, unix millis) over lastActiveAt ?? createdAt */
+    dateFrom?: number;
+    /** Upper bound (inclusive, unix millis) over lastActiveAt ?? createdAt */
+    dateTo?: number;
+    limit?: number;
+    offset?: number;
+}
+
+export type ListProviderSessionsResult =
+    | { type: 'success'; sessions: ProviderSessionMeta[]; total: number; hasMore: boolean }
+    | { type: 'error'; errorMessage: string };
+
+/** A single normalized message from a provider session transcript. */
+export interface ProviderSessionMessage {
+    role: 'user' | 'assistant';
+    text: string;
+    timestamp?: number;
+}
+
+export interface ReadProviderSessionRequest {
+    provider: ProviderSessionProvider;
+    sessionId: string;
+    /** Page offset counted from the newest message; defaults to 0 */
+    offset?: number;
+    /** Page size, defaults to 50 */
+    limit?: number;
+}
+
+export type ReadProviderSessionResult =
+    | { type: 'success'; messages: ProviderSessionMessage[]; total: number; hasMore: boolean }
+    | { type: 'error'; errorMessage: string };
+
 // Exported session operation functions
 
 /**
@@ -237,7 +302,7 @@ export interface ResumeSessionOptions {
  */
 export async function machineSpawnNewSession(options: SpawnSessionOptions): Promise<SpawnSessionResult> {
 
-    const { machineId, directory, approvedNewDirectoryCreation = false, token, agent, permissionMode, modelMode, effortLevel, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId, isSideChat } = options;
+    const { machineId, directory, approvedNewDirectoryCreation = false, token, agent, permissionMode, modelMode, effortLevel, customTitle, resumeClaudeSessionId, resumeCodexThreadId, resumeOpenCodeSessionId, parentSessionId, forkedFromMessageId, isSideChat } = options;
 
     try {
         const result = await apiSocket.machineRPC<SpawnSessionResult, {
@@ -245,19 +310,21 @@ export async function machineSpawnNewSession(options: SpawnSessionOptions): Prom
             directory: string
             approvedNewDirectoryCreation?: boolean,
             token?: string,
-            agent?: 'codex' | 'claude' | 'gemini' | 'openclaw' | 'agy',
+            agent?: 'codex' | 'claude' | 'gemini' | 'openclaw' | 'agy' | 'opencode',
             permissionMode?: string,
             modelMode?: string,
             effortLevel?: string,
+            customTitle?: string,
             resumeClaudeSessionId?: string,
             resumeCodexThreadId?: string,
+            resumeOpenCodeSessionId?: string,
             parentSessionId?: string,
             forkedFromMessageId?: string,
             isSideChat?: boolean,
         }>(
             machineId,
             'spawn-happy-session',
-            { type: 'spawn-in-directory', directory, approvedNewDirectoryCreation, token, agent, permissionMode, modelMode, effortLevel, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId, isSideChat }
+            { type: 'spawn-in-directory', directory, approvedNewDirectoryCreation, token, agent, permissionMode, modelMode, effortLevel, customTitle, resumeClaudeSessionId, resumeCodexThreadId, resumeOpenCodeSessionId, parentSessionId, forkedFromMessageId, isSideChat }
         );
         return result;
     } catch (error) {
@@ -456,6 +523,55 @@ export async function machineDelete(machineId: string): Promise<{ success: boole
         return {
             success: false,
             message: error instanceof Error ? error.message : 'Unknown error'
+        };
+    }
+}
+
+/**
+ * List on-disk AI provider sessions (Claude / Codex / OpenCode) on a machine.
+ * Requires a daemon that advertises `sessionHistorySupport` in its metadata;
+ * older daemons reject the unknown RPC method and we surface that as an error.
+ */
+export async function machineListProviderSessions(
+    machineId: string,
+    request: ListProviderSessionsRequest = {},
+): Promise<ListProviderSessionsResult> {
+    try {
+        const result = await apiSocket.machineRPC<ListProviderSessionsResult, ListProviderSessionsRequest>(
+            machineId,
+            'list-provider-sessions',
+            request,
+        );
+        return result;
+    } catch (error) {
+        return {
+            type: 'error',
+            errorMessage: error instanceof Error ? error.message : 'Failed to list provider sessions',
+        };
+    }
+}
+
+/**
+ * Read a single on-disk provider session transcript on a machine as a
+ * paginated, read-only list of normalized user/assistant messages. Offset
+ * counts from the newest message so the detail view can lazily load older
+ * history as the user scrolls up.
+ */
+export async function machineReadProviderSession(
+    machineId: string,
+    request: ReadProviderSessionRequest,
+): Promise<ReadProviderSessionResult> {
+    try {
+        const result = await apiSocket.machineRPC<ReadProviderSessionResult, ReadProviderSessionRequest>(
+            machineId,
+            'read-provider-session',
+            request,
+        );
+        return result;
+    } catch (error) {
+        return {
+            type: 'error',
+            errorMessage: error instanceof Error ? error.message : 'Failed to read provider session',
         };
     }
 }
@@ -691,6 +807,60 @@ export function sessionSetAgentModes(sessionId: string, patch: SessionAgentModes
         .finally(() => {
             clearAgentModePushPending(sessionId, changedFields);
         });
+}
+
+/** Update the user-visible session title in encrypted metadata. */
+export async function sessionUpdateCustomTitle(sessionId: string, title: string | null): Promise<void> {
+    const encryption = sync.encryption.getSessionEncryption(sessionId);
+    const session = storage.getState().sessions[sessionId];
+    if (!encryption || !session?.metadata) {
+        throw new Error(`Session ${sessionId} is not ready for metadata updates`);
+    }
+
+    const normalizedTitle = title?.trim() || null;
+    let currentVersion = session.metadataVersion;
+    let currentMetadata = { ...session.metadata } as Record<string, unknown>;
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+        const nextMetadata = { ...currentMetadata };
+        if (normalizedTitle) nextMetadata.customTitle = normalizedTitle;
+        else delete nextMetadata.customTitle;
+
+        const encrypted = await encryption.encryptRaw(nextMetadata);
+        const result = await apiSocket.emitWithAck<{
+            result: 'success' | 'version-mismatch' | 'error';
+            version?: number;
+            metadata?: string;
+            message?: string;
+        }>('update-metadata', {
+            sid: sessionId,
+            metadata: encrypted,
+            expectedVersion: currentVersion,
+        });
+
+        if (result.result === 'success') {
+            const savedMetadata = await encryption.decryptRaw(result.metadata ?? encrypted);
+            if (!savedMetadata || typeof savedMetadata !== 'object') {
+                throw new Error('Failed to decrypt saved session metadata');
+            }
+            storage.getState().updateSessionMetadata(sessionId, savedMetadata, result.version);
+            // The socket broadcast updates other online devices. Refreshing this
+            // client also verifies that the persisted record is what we render
+            // after a reconnect or a full session reload.
+            await sync.refreshSessions();
+            return;
+        }
+        if (result.result === 'version-mismatch' && result.version !== undefined && result.metadata) {
+            currentVersion = result.version;
+            const latest = await encryption.decryptRaw(result.metadata) as Record<string, unknown> | null;
+            if (!latest) throw new Error('Failed to decrypt latest session metadata');
+            currentMetadata = latest;
+            continue;
+        }
+        throw new Error(result.message || 'Failed to update session title');
+    }
+
+    throw new Error('Failed to update session title after version conflicts');
 }
 
 /**
@@ -980,6 +1150,7 @@ type ClaudeForkSource = {
     machineId: string;
     directory: string;
     claudeSessionId: string;
+    customTitle?: string;
 };
 
 type CodexForkSource = {
@@ -988,6 +1159,7 @@ type CodexForkSource = {
     machineId: string;
     directory: string;
     codexThreadId: string;
+    customTitle?: string;
 };
 
 // Forking source description used by forkAndSpawn.
@@ -999,6 +1171,7 @@ type ForkOptions = {
     forkedFromMessageId?: string;
     /** Marks the forked child as a hidden side chat (kept out of the session list). */
     isSideChat?: boolean;
+    customTitle?: string;
 };
 
 /**
@@ -1018,6 +1191,7 @@ export async function forkAndSpawn(
     opts: ForkOptions = {},
 ): Promise<SpawnSessionResult> {
     if (source.kind === 'codex') {
+        const customTitle = opts.customTitle ?? source.customTitle;
         const forkResult = opts.cutAfterItemId
             ? await codexDuplicateThread({
                 machineId: source.machineId,
@@ -1044,6 +1218,7 @@ export async function forkAndSpawn(
             parentSessionId: source.sessionId,
             forkedFromMessageId: opts.forkedFromMessageId,
             isSideChat: opts.isSideChat,
+            customTitle,
         });
 
         if (spawnResult.type === 'success') {
@@ -1056,6 +1231,8 @@ export async function forkAndSpawn(
 
         return spawnResult;
     }
+
+    const customTitle = opts.customTitle ?? source.customTitle;
 
     const forkResult = opts.cutAfterUuid
         ? await claudeDuplicateSession({
@@ -1083,6 +1260,7 @@ export async function forkAndSpawn(
         parentSessionId: source.sessionId,
         forkedFromMessageId: opts.forkedFromMessageId,
         isSideChat: opts.isSideChat,
+        customTitle,
     });
 
     // Pull the newly-created session row into local sync state before we

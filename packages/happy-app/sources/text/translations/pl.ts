@@ -328,6 +328,8 @@ export const pl: TranslationStructure = {
 
     session: {
         inputPlaceholder: 'Wpisz wiadomość...',
+        rename: 'Zmień nazwę sesji', renameTitle: 'Zmień nazwę sesji', renameMessage: 'Wybierz tytuł tej sesji.', renamePlaceholder: 'Tytuł sesji', renameFailed: 'Nie udało się zmienić nazwy sesji',
+        actionSheetTitle: 'Akcje sesji', actionGroupSession: 'Sesja', actionGroupWork: 'Kontynuuj pracę', actionGroupDeveloper: 'Deweloper', actionGroupDanger: 'Strefa niebezpieczna', sessionIdentity: 'Agent / dostawca / model',
         inactiveArchived: 'Ta sesja jest nieaktywna.',
         resumeFromTerminal: 'Aby wznowić ją z terminala:',
         newChat: 'Nowy czat',
@@ -904,6 +906,28 @@ export const pl: TranslationStructure = {
         deleteConfirmTitle: 'Usunąć tę maszynę?',
         deleteConfirmMessage: 'Maszyna zostanie usunięta z twojego konta. Historia sesji zostanie zachowana, ale nie będziesz mógł uruchamiać nowych sesji, dopóki ponownie nie podłączysz demona.',
         deleteFailed: 'Nie udało się usunąć maszyny.',
+        aiSessionHistory: 'Historia sesji AI',
+        aiSessionHistorySubtitle: 'Przeglądaj i wznawiaj sesje AI zapisane na tej maszynie',
+    },
+
+    providerSessions: {
+        title: 'Sesje AI',
+        searchPlaceholder: 'Szukaj sesji...',
+        filterAll: 'Wszystkie',
+        activeInHappy: 'Aktywna w Happy',
+        empty: 'Nie znaleziono sesji AI na tej maszynie',
+        loadFailed: 'Nie udało się załadować sesji',
+        notSupported: 'Happy CLI na tej maszynie nie obsługuje historii sesji. Zaktualizuj: `npm install -g happy-coder@latest`.',
+        machineNotFound: 'Nie znaleziono maszyny',
+        notResumable: 'Tej sesji nie można wznowić',
+        resumeTitle: 'Wznowić sesję?',
+        resumeMessage: ({ title }: { title: string }) => `Wznowić „${title}” jako nową sesję Happy?`,
+        resumeWarning: 'Jeśli oryginalna sesja jest nadal otwarta w innym miejscu, wznowienie jej tutaj może powodować konflikty.',
+        resume: 'Wznów',
+        missingDirectoryTitle: 'Katalog projektu',
+        missingDirectoryMessage: 'Ta sesja nie ma zapisanego katalogu. Podaj katalog, w którym ją wznowić.',
+        resumeFailed: 'Nie udało się wznowić sesji',
+        sortRecent: 'Najnowsze', sortCreated: 'Utworzone', sortProject: 'Projekt', dateAll: 'Wszystkie', dateToday: 'Dzisiaj', date7Days: '7 dni', date30Days: '30 dni', date90Days: '90 dni', detailEmpty: 'Brak wiadomości w tej sesji', loadEarlier: 'Wczytaj wcześniejsze wiadomości', openInHappy: 'Otwórz w Happy',
     },
 
     message: {
@@ -1057,6 +1081,12 @@ export const pl: TranslationStructure = {
     },
 
     imageUpload: {
+        cameraPermissionTitle: 'Camera Access',
+        cameraPermissionMessage: 'Allow access to your camera to take a photo for this message.',
+        takePhoto: 'Take Photo',
+        chooseMedia: 'Choose Photos & Videos',
+        addFile: 'Add File',
+        command: 'Command',
         permissionTitle: 'Dostęp do biblioteki zdjęć',
         permissionMessage: 'Zezwól na dostęp do biblioteki zdjęć, aby załączać obrazy do wiadomości.',
         limitTitle: 'Osiągnięto limit obrazów',

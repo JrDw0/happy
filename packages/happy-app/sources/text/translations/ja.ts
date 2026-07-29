@@ -312,6 +312,8 @@ export const ja: TranslationStructure = {
 
     session: {
         inputPlaceholder: 'メッセージを入力...',
+        rename: 'セッション名を変更', renameTitle: 'セッション名を変更', renameMessage: 'このセッションのタイトルを入力してください。', renamePlaceholder: 'セッションタイトル', renameFailed: 'セッション名の変更に失敗しました',
+        actionSheetTitle: 'セッション操作', actionGroupSession: 'セッション', actionGroupWork: '作業を続ける', actionGroupDeveloper: '開発者', actionGroupDanger: '危険な操作', sessionIdentity: 'エージェント / プロバイダー / モデル',
         inactiveArchived: 'このセッションは非アクティブです。',
         resumeFromTerminal: 'ターミナルから再開するには:',
         newChat: '新規チャット',
@@ -889,6 +891,28 @@ export const ja: TranslationStructure = {
         deleteConfirmTitle: 'このマシンを削除しますか？',
         deleteConfirmMessage: 'マシンがアカウントから削除されます。セッション履歴は保持されますが、デーモンを再接続するまで新しいセッションを起動できません。',
         deleteFailed: 'マシンの削除に失敗しました。',
+        aiSessionHistory: 'AIセッション履歴',
+        aiSessionHistorySubtitle: 'このマシンに保存されたAIセッションを閲覧・再開',
+    },
+
+    providerSessions: {
+        title: 'AIセッション',
+        searchPlaceholder: 'セッションを検索...',
+        filterAll: 'すべて',
+        activeInHappy: 'Happyで実行中',
+        empty: 'このマシンにAIセッションが見つかりません',
+        loadFailed: 'セッションの読み込みに失敗しました',
+        notSupported: 'このマシンのHappy CLIはセッション履歴に対応していません。`npm install -g happy-coder@latest` でアップグレードしてください。',
+        machineNotFound: 'マシンが見つかりません',
+        notResumable: 'このセッションは再開できません',
+        resumeTitle: 'セッションを再開しますか？',
+        resumeMessage: ({ title }: { title: string }) => `「${title}」を新しいHappyセッションとして再開しますか？`,
+        resumeWarning: '元のセッションが他の場所で開いている場合、ここで再開すると競合する可能性があります。',
+        resume: '再開',
+        missingDirectoryTitle: 'プロジェクトディレクトリ',
+        missingDirectoryMessage: 'このセッションにはディレクトリが記録されていません。再開するディレクトリを入力してください。',
+        resumeFailed: 'セッションの再開に失敗しました',
+        sortRecent: '最近', sortCreated: '作成日', sortProject: 'プロジェクト', dateAll: 'すべて', dateToday: '今日', date7Days: '7日間', date30Days: '30日間', date90Days: '90日間', detailEmpty: 'このセッションにはメッセージがありません', loadEarlier: '以前のメッセージを読み込む', openInHappy: 'Happyで開く',
     },
 
     message: {
@@ -1029,6 +1053,12 @@ export const ja: TranslationStructure = {
     },
 
     imageUpload: {
+        cameraPermissionTitle: 'Camera Access',
+        cameraPermissionMessage: 'Allow access to your camera to take a photo for this message.',
+        takePhoto: 'Take Photo',
+        chooseMedia: 'Choose Photos & Videos',
+        addFile: 'Add File',
+        command: 'Command',
         permissionTitle: 'フォトライブラリへのアクセス',
         permissionMessage: 'メッセージに画像を添付するには、フォトライブラリへのアクセスを許可してください。',
         limitTitle: '画像の上限に達しました',

@@ -457,6 +457,18 @@ export default function MachineDetailScreen() {
                     </>
                 )}
 
+                {/* AI session history (browse / resume on-disk provider sessions) */}
+                {isMachineOnline(machine) && metadata?.sessionHistorySupport && (
+                    <ItemGroup>
+                        <Item
+                            title={t('machine.aiSessionHistory')}
+                            subtitle={t('machine.aiSessionHistorySubtitle')}
+                            leftElement={<Ionicons name="time-outline" size={20} color={theme.colors.textSecondary} />}
+                            onPress={() => router.push(`/machine/${machineId}/sessions`)}
+                        />
+                    </ItemGroup>
+                )}
+
                 {/* Daemon */}
                 <ItemGroup title={t('machine.daemon')}>
                         <Item
