@@ -39,6 +39,7 @@ import { emitReadyIfIdle } from './emitReadyIfIdle';
 import { enqueueCodexUserText, isCodexClearText } from './codexClearCommand';
 import { downloadCodexFileEventAttachment } from './utils/attachmentEvents';
 import { prepareCodexImageInputItems } from './utils/imageInput';
+import { materializeNonImageAttachments } from '@/utils/attachmentFiles';
 import { createSerialAsyncHandler } from './utils/serialAsyncHandler';
 import { buildCodexThreadBackfillEnvelopes } from './utils/threadImageBackfill';
 import {
@@ -83,6 +84,13 @@ function hasCodexSubagentReference(message: Record<string, unknown>): boolean {
 const DEFAULT_CODEX_MODEL = 'gpt-5.5';
 const DEFAULT_CODEX_EFFORT: ReasoningEffort = 'medium';
 const DEFAULT_CODEX_PERMISSION_MODE: PermissionMode = 'yolo';
+
+/**
+ * Cap on how many historical thread envelopes a fork backfill replays into
+ * the fresh Happy session UI. Mirrors the Claude fork backfill cap; keeps
+ * resuming long threads fast without affecting the model's own context.
+ */
+const FORK_BACKFILL_MAX_MESSAGES = 200;
 
 /**
  * Main entry point for the codex command with ink UI
@@ -159,6 +167,7 @@ export async function runCodex(opts: {
         machineId,
         startedBy: opts.startedBy,
         sandbox: sandboxConfig,
+        model: opts.model ?? DEFAULT_CODEX_MODEL,
         dangerouslySkipPermissions: initialPermissionMode === 'yolo' || initialPermissionMode === 'bypassPermissions',
         ...(forkedFromSessionId ? { parentSessionId: forkedFromSessionId } : {}),
         ...(forkedFromMessageId ? { forkedFromMessageId } : {}),
@@ -178,6 +187,11 @@ export async function runCodex(opts: {
     const reconnectSeq = process.env.HAPPY_RECONNECT_SEQ;
     const reconnectMetadataVersion = process.env.HAPPY_RECONNECT_METADATA_VERSION;
     const reconnectAgentStateVersion = process.env.HAPPY_RECONNECT_AGENT_STATE_VERSION;
+    if (process.env.HAPPY_RECONNECT_CUSTOM_TITLE !== undefined) {
+        const reconnectCustomTitle = new TextDecoder().decode(decodeBase64(process.env.HAPPY_RECONNECT_CUSTOM_TITLE));
+        if (reconnectCustomTitle.trim()) metadata.customTitle = reconnectCustomTitle.trim();
+        else delete metadata.customTitle;
+    }
 
     let response: ApiSession | null;
     if (reconnectSessionId && reconnectKeyBase64 && reconnectVariant) {
@@ -333,6 +347,10 @@ export async function runCodex(opts: {
         if (message.meta?.hasOwnProperty('model')) {
             messageModel = message.meta.model || undefined;
             currentModel = messageModel;
+            session.updateMetadata((currentMetadata) => ({
+                ...currentMetadata,
+                model: messageModel ? { providerId: 'codex', id: messageModel } : undefined,
+            }));
             logger.debug(`[Codex] Model updated from user message: ${messageModel || 'reset to default'}`);
         } else {
             logger.debug(`[Codex] User message received with no model override, using current: ${currentModel || 'default'}`);
@@ -900,10 +918,19 @@ export async function runCodex(opts: {
                             session.uploadLocalImageAttachmentEnvelope(attachment, imageOpts)
                         ),
                     });
-                    for (const envelope of envelopes) {
+                    // Only replay the most recent envelopes into the UI. Long
+                    // threads produce thousands of envelopes, and encrypting +
+                    // uploading every one before the app renders made resuming
+                    // slow. The model still has full context (thread/fork copies
+                    // it); older history stays viewable in the session-history
+                    // detail page.
+                    const replayEnvelopes = envelopes.length > FORK_BACKFILL_MAX_MESSAGES
+                        ? envelopes.slice(envelopes.length - FORK_BACKFILL_MAX_MESSAGES)
+                        : envelopes;
+                    for (const envelope of replayEnvelopes) {
                         session.sendSessionProtocolMessage(envelope);
                     }
-                    logger.debug(`[CODEX FORK BACKFILL] Replayed ${envelopes.length} historical envelopes from thread ${forkCodexThreadId}`);
+                    logger.debug(`[CODEX FORK BACKFILL] Replayed ${replayEnvelopes.length}/${envelopes.length} historical envelopes from thread ${forkCodexThreadId}`);
                 } catch (error) {
                     logger.debug(`[CODEX FORK BACKFILL] Failed to read thread ${forkCodexThreadId}:`, error);
                 }
@@ -1016,6 +1043,7 @@ export async function runCodex(opts: {
                 const imageInputs = await prepareCodexImageInputItems(message.attachments, {
                     sessionId: session.sessionId,
                 });
+                const fileContext = await materializeNonImageAttachments(session.sessionId, message.attachments);
                 if ((message.attachments?.length ?? 0) > 0) {
                     logger.debug('[Codex] Prepared image inputs for turn', {
                         inputCount: imageInputs.inputItems.length,
@@ -1023,15 +1051,15 @@ export async function runCodex(opts: {
                     });
                 }
                 const hasUserText = message.message.trim().length > 0;
-                if ((message.attachments?.length ?? 0) > 0 && imageInputs.inputItems.length === 0 && !hasUserText) {
+                if ((message.attachments?.length ?? 0) > 0 && imageInputs.inputItems.length === 0 && !fileContext.context && !hasUserText) {
                     session.sendSessionEvent({
                         type: 'message',
-                        message: 'No supported images were available to send to Codex.',
+                        message: 'No supported attachments were available to send to Codex.',
                     });
                     continue;
                 }
                 const turnPrompt = buildCodexTurnPrompt({
-                    message: message.message,
+                    message: [message.message, fileContext.context].filter(Boolean).join('\n\n'),
                     mode: message.mode,
                     includeAppendSystemPrompt,
                     includeTitleInstruction: first,

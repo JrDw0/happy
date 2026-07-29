@@ -247,6 +247,7 @@ describe('runClaude remote JSONL scanner', () => {
         delete process.env.HAPPY_RECONNECT_SEQ;
         delete process.env.HAPPY_RECONNECT_METADATA_VERSION;
         delete process.env.HAPPY_RECONNECT_AGENT_STATE_VERSION;
+        delete process.env.HAPPY_RECONNECT_CUSTOM_TITLE;
         delete process.env.HAPPY_FORKED_FROM_SESSION_ID;
         delete process.env.HAPPY_FORKED_FROM_MESSAGE_ID;
         delete process.env.HAPPY_FORK_CLAUDE_SESSION_ID;

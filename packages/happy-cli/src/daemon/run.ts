@@ -360,6 +360,9 @@ export async function startDaemon(): Promise<void> {
         if (options.isSideChat) {
           extraEnv.HAPPY_SIDE_CHAT = '1';
         }
+        if (options.customTitle?.trim()) {
+          extraEnv.HAPPY_RECONNECT_CUSTOM_TITLE = encodeBase64(new TextEncoder().encode(options.customTitle.trim()));
+        }
         // For fork: spawned Happy CLI needs to know which Claude JSONL to
         // backfill into the fresh Happy session row. Without this, the
         // SDK reads the JSONL silently as context but never re-emits the
@@ -435,19 +438,23 @@ export async function startDaemon(): Promise<void> {
 
           // Construct command for the CLI
           const cliPath = join(projectPath(), 'dist', 'index.mjs');
-          // Determine agent command - support claude, codex, gemini, openclaw, and agy
-          const agent = options.agent === 'gemini' ? 'gemini' : (options.agent === 'codex' ? 'codex' : (options.agent === 'openclaw' ? 'openclaw' : (options.agent === 'agy' ? 'agy' : 'claude')));
+          // Determine agent command - support claude, codex, gemini, openclaw, agy, and opencode
+          const agent = options.agent === 'gemini' ? 'gemini' : (options.agent === 'codex' ? 'codex' : (options.agent === 'openclaw' ? 'openclaw' : (options.agent === 'agy' ? 'agy' : (options.agent === 'opencode' ? 'opencode' : 'claude'))));
           const resumeId = agent === 'claude'
             ? options.resumeClaudeSessionId
-            : (agent === 'codex' ? options.resumeCodexThreadId : undefined);
+            : (agent === 'codex' ? options.resumeCodexThreadId : (agent === 'opencode' ? options.resumeOpenCodeSessionId : undefined));
           const resumeFragment = resumeId
             ? ` --resume ${shellescape(resumeId)}`
             : '';
-          const launchArgs = [
-            agent,
-            '--happy-starting-mode', 'remote',
-            '--started-by', 'daemon',
-          ];
+          // OpenCode is launched through the ACP subcommand, which does not
+          // understand --happy-starting-mode (ACP sessions are always remote).
+          const launchArgs = agent === 'opencode'
+            ? ['acp', 'opencode', '--started-by', 'daemon']
+            : [
+              agent,
+              '--happy-starting-mode', 'remote',
+              '--started-by', 'daemon',
+            ];
           appendDaemonSpawnModeArgs(launchArgs, options, agent);
           const modeFragment = launchArgs.map(shellescape).join(' ');
           const fullCommand = `node --no-warnings --no-deprecation ${shellescape(cliPath)} ${modeFragment}${resumeFragment}`;
@@ -550,17 +557,24 @@ export async function startDaemon(): Promise<void> {
             case 'agy':
               agentCommand = 'agy';
               break;
+            case 'opencode':
+              agentCommand = 'opencode';
+              break;
             default:
               return {
                 type: 'error',
                 errorMessage: `Unsupported agent type: '${options.agent}'. Please update your CLI to the latest version.`
               };
           }
-          const args = [
-            agentCommand,
-            '--happy-starting-mode', 'remote',
-            '--started-by', 'daemon'
-          ];
+          // OpenCode is launched through the ACP subcommand, which does not
+          // understand --happy-starting-mode (ACP sessions are always remote).
+          const args = agentCommand === 'opencode'
+            ? ['acp', 'opencode', '--started-by', 'daemon']
+            : [
+              agentCommand,
+              '--happy-starting-mode', 'remote',
+              '--started-by', 'daemon'
+            ];
           appendDaemonSpawnModeArgs(args, options, agentCommand);
 
           // Resume ids attach the new Happy session to a pre-existing provider
@@ -570,6 +584,9 @@ export async function startDaemon(): Promise<void> {
           }
           if (options.resumeCodexThreadId && agentCommand === 'codex') {
             args.push('--resume', options.resumeCodexThreadId);
+          }
+          if (options.resumeOpenCodeSessionId && agentCommand === 'opencode') {
+            args.push('--resume', options.resumeOpenCodeSessionId);
           }
 
           // TODO: In future, sessionId could be used with --resume to continue existing sessions
@@ -715,15 +732,13 @@ export async function startDaemon(): Promise<void> {
         // Webhook metadata may be stale (missing claudeSessionId/codexThreadId set after startup).
         // Fetch fresh metadata from server if needed.
         let metadata = tracked.happySessionMetadataFromLocalWebhook;
-        const needsFetch = (!metadata.claudeSessionId && (!metadata.flavor || metadata.flavor === 'claude'))
-          || (!metadata.codexThreadId && metadata.flavor === 'codex');
-        if (needsFetch) {
-          logger.debug(`[DAEMON RUN] Session ${happySessionId} missing agent session ID in webhook metadata, fetching from server`);
-          const serverMetadata = await fetchServerSessionMetadata(happySessionId, tracked.encryption.encryptionKey, tracked.encryption.encryptionVariant);
-          if (serverMetadata) {
-            metadata = serverMetadata;
-            tracked.happySessionMetadataFromLocalWebhook = serverMetadata;
-          }
+        // The title can be edited from another device while this daemon is
+        // offline. Always refresh before reconnecting so the child cannot
+        // overwrite the latest encrypted metadata with a stale local copy.
+        const serverMetadata = await fetchServerSessionMetadata(happySessionId, tracked.encryption.encryptionKey, tracked.encryption.encryptionVariant);
+        if (serverMetadata) {
+          metadata = serverMetadata;
+          tracked.happySessionMetadataFromLocalWebhook = serverMetadata;
         }
 
         const launch = buildResumeLaunch(
@@ -753,6 +768,9 @@ export async function startDaemon(): Promise<void> {
             HAPPY_RECONNECT_SEQ: String(tracked.encryption.seq),
             HAPPY_RECONNECT_METADATA_VERSION: String(tracked.encryption.metadataVersion),
             HAPPY_RECONNECT_AGENT_STATE_VERSION: String(tracked.encryption.agentStateVersion),
+            // Always send the title marker for in-place resume, including an
+            // empty value, so clearing a title is preserved after restart.
+            HAPPY_RECONNECT_CUSTOM_TITLE: encodeBase64(new TextEncoder().encode(metadata.customTitle ?? '')),
           }),
         });
       } catch (error) {

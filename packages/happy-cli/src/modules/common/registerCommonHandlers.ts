@@ -120,10 +120,12 @@ export interface SpawnSessionOptions {
     directory: string;
     sessionId?: string;
     approvedNewDirectoryCreation?: boolean;
-    agent?: 'claude' | 'codex' | 'gemini' | 'openclaw' | 'agy';
+    agent?: 'claude' | 'codex' | 'gemini' | 'openclaw' | 'agy' | 'opencode';
     permissionMode?: string;
     modelMode?: string;
     effortLevel?: string;
+    /** User-defined title to preserve when spawning a resumed provider session. */
+    customTitle?: string;
     environmentVariables?: Record<string, string>;
     token?: string;
     /**
@@ -139,6 +141,11 @@ export interface SpawnSessionOptions {
      * session attaches to a forked Codex app-server thread.
      */
     resumeCodexThreadId?: string;
+    /**
+     * If set, the daemon spawns `happy acp opencode --resume <id>` so a fresh
+     * Happy session loads an existing OpenCode session via ACP session/load.
+     */
+    resumeOpenCodeSessionId?: string;
     /** Happy session id this fork was branched from (lineage). */
     parentSessionId?: string;
     /** Happy message id used as the rewind point (only set for "duplicate"). */

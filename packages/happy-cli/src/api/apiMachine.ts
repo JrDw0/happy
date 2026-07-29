@@ -28,6 +28,7 @@ import {
     forkCodexThread,
     listCodexRewindPoints,
 } from '@/codex/codexThreadFork';
+import { listProviderSessions, readProviderSession, type ListProviderSessionsRequest, type ReadProviderSessionRequest } from '@/sessionHistory';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -148,14 +149,14 @@ export class ApiMachineClient {
 
         // Register spawn session handler
         this.rpcHandlerManager.registerHandler('spawn-happy-session', async (params: any) => {
-            const { directory, sessionId, machineId, approvedNewDirectoryCreation, agent, permissionMode, modelMode, effortLevel, environmentVariables, token, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId, isSideChat } = params || {};
+            const { directory, sessionId, machineId, approvedNewDirectoryCreation, agent, permissionMode, modelMode, effortLevel, customTitle, environmentVariables, token, resumeClaudeSessionId, resumeCodexThreadId, resumeOpenCodeSessionId, parentSessionId, forkedFromMessageId, isSideChat } = params || {};
             logger.debug(`[API MACHINE] Spawning session with params: ${JSON.stringify(params)}`);
 
             if (!directory) {
                 throw new Error('Directory is required');
             }
 
-            const result = await spawnSession({ directory, sessionId, machineId, approvedNewDirectoryCreation, agent, permissionMode, modelMode, effortLevel, environmentVariables, token, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId, isSideChat });
+            const result = await spawnSession({ directory, sessionId, machineId, approvedNewDirectoryCreation, agent, permissionMode, modelMode, effortLevel, customTitle, environmentVariables, token, resumeClaudeSessionId, resumeCodexThreadId, resumeOpenCodeSessionId, parentSessionId, forkedFromMessageId, isSideChat });
 
             switch (result.type) {
                 case 'success':
@@ -315,6 +316,34 @@ export class ApiMachineClient {
                 }
                 throw error;
             }
+        });
+
+        // List on-disk AI session history (claude/codex/opencode) so the app
+        // can browse and resume any session on this machine remotely.
+        this.rpcHandlerManager.registerHandler('list-provider-sessions', async (params: any) => {
+            const request: ListProviderSessionsRequest = {
+                providers: Array.isArray(params?.providers) ? params.providers : undefined,
+                query: typeof params?.query === 'string' ? params.query : undefined,
+                sortBy: typeof params?.sortBy === 'string' ? params.sortBy : undefined,
+                sortOrder: typeof params?.sortOrder === 'string' ? params.sortOrder : undefined,
+                dateFrom: typeof params?.dateFrom === 'number' ? params.dateFrom : undefined,
+                dateTo: typeof params?.dateTo === 'number' ? params.dateTo : undefined,
+                limit: typeof params?.limit === 'number' ? params.limit : undefined,
+                offset: typeof params?.offset === 'number' ? params.offset : undefined,
+            };
+            return await listProviderSessions(request);
+        });
+
+        // Read a single on-disk session transcript (paginated from newest)
+        // so the app can show a read-only timeline before resuming.
+        this.rpcHandlerManager.registerHandler('read-provider-session', async (params: any) => {
+            const request: ReadProviderSessionRequest = {
+                provider: typeof params?.provider === 'string' ? params.provider : '',
+                sessionId: typeof params?.sessionId === 'string' ? params.sessionId : '',
+                offset: typeof params?.offset === 'number' ? params.offset : undefined,
+                limit: typeof params?.limit === 'number' ? params.limit : undefined,
+            };
+            return await readProviderSession(request);
         });
 
         // Register stop daemon handler
@@ -517,23 +546,37 @@ export class ApiMachineClient {
         }
         this.socket.emit('machine-alive', payload);
 
-        // Re-detect CLI availability and push metadata update if changed
+        // Re-detect CLI availability and push metadata update
         const newAvailability = detectCLIAvailability();
         const prev = this.lastKnownCLIAvailability;
         const newResumeSupport = detectResumeSupport();
         const prevResume = this.lastKnownResumeSupport;
-        const cliAvailabilityChanged = !prev || prev.claude !== newAvailability.claude || prev.codex !== newAvailability.codex || prev.gemini !== newAvailability.gemini || prev.openclaw !== newAvailability.openclaw;
+        const cliAvailabilityChanged = !prev || prev.claude !== newAvailability.claude || prev.codex !== newAvailability.codex || prev.gemini !== newAvailability.gemini || prev.openclaw !== newAvailability.openclaw || prev.agy !== newAvailability.agy || prev.opencode !== newAvailability.opencode;
         const resumeSupportChanged = !prevResume
             || prevResume.rpcAvailable !== newResumeSupport.rpcAvailable
             || prevResume.happyAgentAuthenticated !== newResumeSupport.happyAgentAuthenticated;
 
-        if (cliAvailabilityChanged || resumeSupportChanged) {
+        // Always push sessionHistorySupport on every keep-alive so the app
+        // always sees this capability as soon as the daemon starts.
+        // Re-push full detection metadata only when it actually changed.
+        const metadataUpdate: Record<string, unknown> = {
+            sessionHistorySupport: true,
+        };
+        let forceUpdate = true;
+
+        if (cliAvailabilityChanged) {
             this.lastKnownCLIAvailability = newAvailability;
+            metadataUpdate.cliAvailability = newAvailability;
+        }
+        if (resumeSupportChanged) {
             this.lastKnownResumeSupport = newResumeSupport;
+            metadataUpdate.resumeSupport = { ...newResumeSupport, rpcAvailable: !!this.resumeSessionHandler };
+        }
+
+        if (cliAvailabilityChanged || resumeSupportChanged || forceUpdate) {
             this.updateMachineMetadata((metadata) => ({
                 ...(metadata || {} as any),
-                cliAvailability: newAvailability,
-                resumeSupport: { ...newResumeSupport, rpcAvailable: !!this.resumeSessionHandler },
+                ...metadataUpdate,
             })).catch((err) => {
                 logger.debug('[API MACHINE] Failed to update machine capabilities:', err);
             });

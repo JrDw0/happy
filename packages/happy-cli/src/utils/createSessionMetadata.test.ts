@@ -84,6 +84,16 @@ describe('createSessionMetadata', () => {
         expect(metadata.dangerouslySkipPermissions).toBe(true);
     });
 
+    it('preserves a custom title when creating resumed-session metadata', () => {
+        const { metadata } = createSessionMetadata({
+            flavor: 'codex',
+            machineId: 'machine-title',
+            customTitle: '  My saved session  ',
+        });
+
+        expect(metadata.customTitle).toBe('My saved session');
+    });
+
     it('sets fork lineage metadata when provided', () => {
         const { metadata } = createSessionMetadata({
             flavor: 'codex',

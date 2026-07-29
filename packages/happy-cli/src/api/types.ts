@@ -139,6 +139,7 @@ export const MachineMetadataSchema = z.object({
     codex: z.boolean(),
     gemini: z.boolean(),
     openclaw: z.boolean(),
+    opencode: z.boolean().optional(),
     detectedAt: z.number(),
   }).optional(),
   resumeSupport: z.object({
@@ -148,6 +149,9 @@ export const MachineMetadataSchema = z.object({
     happyAgentAuthenticated: z.boolean(),
     detectedAt: z.number(),
   }).optional(),
+  // Daemon supports the `list-provider-sessions` RPC for browsing
+  // on-disk AI session history (claude/codex/opencode)
+  sessionHistorySupport: z.boolean().optional(),
 })
 
 export type MachineMetadata = z.infer<typeof MachineMetadataSchema>
@@ -298,6 +302,13 @@ export type Metadata = {
   summary?: {
     text: string,
     updatedAt: number
+  },
+  /** User-defined title stored in encrypted session metadata. */
+  customTitle?: string,
+  /** Provider model currently selected for this session. */
+  model?: {
+    providerId: string,
+    id: string,
   },
   machineId?: string,
   gitBranch?: string,

@@ -36,6 +36,10 @@ export interface CreateSessionMetadataOptions {
     sandbox?: SandboxConfig;
     /** Whether the backend runs with "dangerously skip permissions" behavior */
     dangerouslySkipPermissions?: boolean;
+    /** Initial model selected for the backend session. */
+    model?: string;
+    /** User-defined title to preserve when creating a resumed session. */
+    customTitle?: string;
     /** Happy session id this session was forked from. */
     parentSessionId?: string;
     /** Happy message id used as the fork rewind point. */
@@ -111,6 +115,8 @@ export function createSessionMetadata(opts: CreateSessionMetadataOptions): Sessi
         lifecycleState: 'running',
         lifecycleStateSince: Date.now(),
         flavor: opts.flavor,
+        ...(opts.customTitle?.trim() ? { customTitle: opts.customTitle.trim() } : {}),
+        ...(opts.model ? { model: { providerId: opts.flavor, id: opts.model } } : {}),
         sandbox: opts.sandbox?.enabled ? opts.sandbox : null,
         dangerouslySkipPermissions: opts.dangerouslySkipPermissions ?? null,
         ...(gitBranch ? { gitBranch } : {}),

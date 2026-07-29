@@ -58,6 +58,15 @@ export interface StartOptions {
 }
 
 const DEFAULT_CLAUDE_PERMISSION_MODE: PermissionMode = 'yolo';
+
+/**
+ * Cap on how many historical transcript messages a fork backfill replays
+ * into the fresh Happy session. Long sessions can have thousands of lines;
+ * replaying all of them made resuming slow because each is encrypted and
+ * uploaded before the app renders. Only the most recent N are backfilled
+ * into the chat; the model still reads the full JSONL for context.
+ */
+const FORK_BACKFILL_MAX_MESSAGES = 200;
 const DEFAULT_CLAUDE_MODEL = 'opus';
 const DEFAULT_CLAUDE_EFFORT: 'low' | 'medium' | 'high' | 'xhigh' | 'max' = 'medium';
 type ClaudeGoalCommand = NonNullable<ReturnType<typeof parseClaudeGoalActionParams>>;
@@ -141,6 +150,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         lifecycleState: 'running',
         lifecycleStateSince: Date.now(),
         flavor: 'claude',
+        model: { providerId: 'claude', id: options.model ?? DEFAULT_CLAUDE_MODEL },
         sandbox: sandboxConfig?.enabled ? sandboxConfig : null,
         dangerouslySkipPermissions,
         ...(forkedFromSessionId ? { parentSessionId: forkedFromSessionId } : {}),
@@ -155,6 +165,11 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     const reconnectSeq = process.env.HAPPY_RECONNECT_SEQ;
     const reconnectMetadataVersion = process.env.HAPPY_RECONNECT_METADATA_VERSION;
     const reconnectAgentStateVersion = process.env.HAPPY_RECONNECT_AGENT_STATE_VERSION;
+    if (process.env.HAPPY_RECONNECT_CUSTOM_TITLE !== undefined) {
+        const reconnectCustomTitle = new TextDecoder().decode(decodeBase64(process.env.HAPPY_RECONNECT_CUSTOM_TITLE));
+        if (reconnectCustomTitle.trim()) metadata.customTitle = reconnectCustomTitle.trim();
+        else delete metadata.customTitle;
+    }
 
     let response: ApiSession | null;
     if (reconnectSessionId && reconnectKeyBase64 && reconnectVariant) {
@@ -316,17 +331,32 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
             try {
                 const file = await readFile(jsonlPath, 'utf-8');
                 const lines = file.split('\n');
-                let backfilled = 0;
+                // Parse valid transcript lines first, then only replay the most
+                // recent FORK_BACKFILL_MAX_MESSAGES of them. Replaying every line
+                // of a long session (thousands of entries) meant each one had to
+                // be encrypted and uploaded before the app showed anything, which
+                // made resuming long sessions extremely slow. The model's own
+                // context is unaffected (the SDK reads the full JSONL via
+                // `resume:`); older history remains viewable in the app's
+                // session-history detail page.
+                const parsedLines: RawJSONLines[] = [];
                 for (const line of lines) {
                     if (line.trim().length === 0) continue;
                     let parsed: unknown;
                     try { parsed = JSON.parse(line); } catch { continue; }
                     const result = RawJSONLinesSchema.safeParse(parsed);
                     if (!result.success) continue;
-                    await session.sendClaudeSessionMessageFromLocalTranscript(result.data as RawJSONLines);
+                    parsedLines.push(result.data as RawJSONLines);
+                }
+                const replayLines = parsedLines.length > FORK_BACKFILL_MAX_MESSAGES
+                    ? parsedLines.slice(parsedLines.length - FORK_BACKFILL_MAX_MESSAGES)
+                    : parsedLines;
+                let backfilled = 0;
+                for (const data of replayLines) {
+                    await session.sendClaudeSessionMessageFromLocalTranscript(data);
                     backfilled += 1;
                 }
-                logger.debug(`[FORK BACKFILL] Replayed ${backfilled} historical messages from ${jsonlPath}`);
+                logger.debug(`[FORK BACKFILL] Replayed ${backfilled}/${parsedLines.length} historical messages from ${jsonlPath}`);
             } catch (error) {
                 logger.debug(`[FORK BACKFILL] Failed to read ${jsonlPath}:`, error);
             }
@@ -683,6 +713,10 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         if (message.meta?.hasOwnProperty('model')) {
             messageModel = message.meta.model || undefined; // null becomes undefined
             currentModel = messageModel;
+            session.updateMetadata((currentMetadata) => ({
+                ...currentMetadata,
+                model: messageModel ? { providerId: 'claude', id: messageModel } : undefined,
+            }));
             logger.debug(`[loop] Model updated from user message: ${messageModel || 'reset to default'}`);
         } else {
             logger.debug(`[loop] User message received with no model override, using current: ${currentModel || 'default'}`);
