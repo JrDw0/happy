@@ -1,5 +1,5 @@
 /**
- * Shared types for image attachment upload pipeline.
+ * Shared types for the encrypted attachment upload pipeline.
  * Defined here (not in hooks/) to avoid circular dependencies:
  * hooks/ imports from sync/, so sync/ cannot import from hooks/.
  */
@@ -11,6 +11,7 @@ export type AttachmentPreview = {
     width: number;
     height: number;
     mimeType: string;
+    kind?: 'image' | 'video' | 'file';
     /** May be 0 if the system did not provide the file size. */
     size: number;
     name: string;
@@ -22,6 +23,7 @@ export type UploadedAttachment = {
     ref: string;
     name: string;
     size: number;
+    mimeType: string;
     width: number;
     height: number;
     thumbhash?: string;

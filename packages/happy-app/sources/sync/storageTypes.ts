@@ -117,6 +117,8 @@ export const MetadataSchema = z.object({
         text: z.string(),
         updatedAt: z.number()
     }).optional(),
+    // User-defined title stored in encrypted session metadata.
+    customTitle: z.string().trim().min(1).optional(),
     machineId: z.string().optional(),
     claudeSessionId: z.string().optional(), // Claude Code session ID
     codexThreadId: z.string().optional(), // Codex app-server thread ID
@@ -343,6 +345,7 @@ export const MachineMetadataSchema = z.object({
         gemini: z.boolean(),
         openclaw: z.boolean(),
         agy: z.boolean().optional(), // optional: older CLIs don't report agy
+        opencode: z.boolean().optional(), // optional: older CLIs don't report opencode
         detectedAt: z.number(),
     }).optional(),
     resumeSupport: z.object({
@@ -352,6 +355,9 @@ export const MachineMetadataSchema = z.object({
         happyAgentAuthenticated: z.boolean(),
         detectedAt: z.number(),
     }).optional(),
+    // Daemon supports the `list-provider-sessions` RPC (browse/resume on-disk
+    // Claude / Codex / OpenCode sessions). Absent on older CLIs.
+    sessionHistorySupport: z.boolean().optional(),
 });
 
 export type MachineMetadata = z.infer<typeof MachineMetadataSchema>;

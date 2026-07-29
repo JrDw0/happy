@@ -14,7 +14,13 @@ vi.mock('react-native', () => ({
 
 vi.mock('expo-image-picker', () => ({
     requestMediaLibraryPermissionsAsync: mocks.requestMediaLibraryPermissionsAsync,
+    requestCameraPermissionsAsync: vi.fn(),
     launchImageLibraryAsync: mocks.launchImageLibraryAsync,
+    launchCameraAsync: vi.fn(),
+}));
+
+vi.mock('expo-document-picker', () => ({
+    getDocumentAsync: vi.fn(),
 }));
 
 vi.mock('expo-image-manipulator', () => ({

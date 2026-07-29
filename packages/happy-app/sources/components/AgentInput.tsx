@@ -35,6 +35,7 @@ import { resolveAgentInputPrimaryAction } from './agentInputPrimaryAction';
 import { NativeSettingsMenu, type NativeSettingsMenuGroup } from './NativeSettingsMenu';
 import { ProviderIcon } from './ProviderIcon';
 import { isRigMetadata } from '@/sync/rig';
+import { AttachmentActionMenu } from './AttachmentActionMenu';
 
 interface AgentInputProps {
     // `initialValue` seeds the uncontrolled textarea once; keystrokes never
@@ -103,6 +104,9 @@ interface AgentInputProps {
     /** Image attachments waiting to be sent (expImageUpload feature). */
     selectedImages?: AttachmentPreview[];
     onPickImages?: () => void;
+    onTakePhoto?: () => void;
+    onPickMedia?: () => void;
+    onPickFiles?: () => void;
     onRemoveImage?: (id: string) => void;
     onAddImages?: (images: AttachmentPreview[]) => void;
 }
@@ -125,9 +129,11 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         position: 'relative',
     },
     unifiedPanel: {
-        backgroundColor: theme.colors.input.background,
+        backgroundColor: theme.colors.surface,
         borderRadius: Platform.select({ default: 16, android: 20 }),
-        overflow: 'hidden',
+        overflow: 'visible',
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
         paddingVertical: 2,
         paddingBottom: 8,
         paddingHorizontal: 8,
@@ -144,11 +150,11 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
     },
     unifiedPanelShadow: {
         borderRadius: 24,
-        shadowColor: theme.colors.glass.shadow,
+        shadowColor: theme.colors.shadow.color,
         shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 1,
-        shadowRadius: 28,
-        elevation: 7,
+        shadowOpacity: theme.colors.shadow.opacity * 0.65,
+        shadowRadius: 18,
+        elevation: 4,
     },
     mobileUnifiedPanel: {
         borderRadius: 30,
@@ -693,7 +699,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
     // Desktop web, Mac Catalyst, and tablet-width canvases retain the existing
     // composer affordances rather than inheriting the mobile action row.
     const compactMobileComposer = Platform.OS !== 'web' && !isRunningOnMac() && screenWidth <= 700;
-    const glassEnabled = compactMobileComposer;
+    const glassEnabled = false;
     const useNativeSettingsMenus = compactMobileComposer;
     const activeSendIconColor = glassEnabled ? theme.colors.text : theme.colors.button.primary.tint;
     const isSendBlocked = props.blockSend ?? false;
@@ -704,6 +710,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
     const [hasText, setHasText] = React.useState(() => props.initialValue.trim().length > 0);
     const hasImages = (props.selectedImages?.length ?? 0) > 0;
     const hasComposerContent = hasText || hasImages;
+    const [attachmentMenuOpen, setAttachmentMenuOpen] = React.useState(false);
 
     // Check if this is a Codex, Gemini, or OpenClaw session
     // Use metadata.flavor for existing sessions, agentType prop for new sessions
@@ -762,6 +769,12 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
     const shakerRef = React.useRef<ShakeInstance>(null);
     const sendBlockShakerRef = React.useRef<ShakeInstance>(null);
     const inputRef = React.useRef<MultiTextInputHandle>(null);
+    const insertSlash = React.useCallback(() => {
+        const text = inputRef.current?.getText() ?? '';
+        const nextText = text.startsWith('/') ? text : `/${text}`;
+        inputRef.current?.setTextAndSelection(nextText, { start: nextText.length, end: nextText.length });
+        inputRef.current?.focus();
+    }, []);
     const primaryAction = resolveAgentInputPrimaryAction({
         hasComposerContent,
         isSendBlocked,
@@ -1334,7 +1347,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                             styles.sendButton,
                             isSendBlocked
                                 ? styles.sendButtonLocked
-                                : (hasText || props.isSending || (props.onMicPress && !props.isMicActive))
+                                : (hasComposerContent || props.isSending || (props.onMicPress && !props.isMicActive))
                                     ? styles.sendButtonActive
                                     : styles.sendButtonInactive,
                         ]}
@@ -1355,7 +1368,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                                 <ActivityIndicator size="small" color={theme.colors.button.primary.tint} />
                             ) : isSendBlocked ? (
                                 <Ionicons name="lock-closed" size={15} color={theme.colors.textSecondary} />
-                            ) : hasText ? (
+                            ) : hasComposerContent ? (
                                 <Octicons
                                     name="arrow-up"
                                     size={16}
@@ -1897,6 +1910,14 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                                 compactMobileComposer && styles.mobileUnifiedPanel,
                             ]}
                         >
+                    {attachmentMenuOpen && (props.onTakePhoto || props.onPickMedia || props.onPickFiles) && (
+                        <AttachmentActionMenu
+                            onTakePhoto={() => void props.onTakePhoto?.()}
+                            onPickMedia={() => void (props.onPickMedia ?? props.onPickImages)?.()}
+                            onPickFiles={() => void props.onPickFiles?.()}
+                            onClose={() => setAttachmentMenuOpen(false)}
+                        />
+                    )}
                     {/* Attachment preview strip */}
                     {props.selectedImages && props.selectedImages.length > 0 && (
                         <AgentInputAttachmentStrip
@@ -1930,9 +1951,15 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                         styles.actionButtonsContainer,
                         styles.mobileActionButtonsContainer,
                     ]}>
-                        {!props.zenMode && props.onPickImages && (
+                        {!props.zenMode && (props.onPickImages || props.onPickMedia || props.onTakePhoto || props.onPickFiles) && (
                             <BubblePressable
-                                onPress={props.onPickImages}
+                                onPress={() => {
+                                    if (props.onTakePhoto || props.onPickMedia || props.onPickFiles) {
+                                        setAttachmentMenuOpen((open) => !open);
+                                    } else {
+                                        props.onPickImages?.();
+                                    }
+                                }}
                                 hitSlop={6}
                                 style={styles.mobileIconButton}
                                 accessibilityRole="button"
@@ -1945,6 +1972,18 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                                         ? theme.colors.radio.active
                                         : theme.colors.text}
                                 />
+                            </BubblePressable>
+                        )}
+
+                        {!props.zenMode && props.autocompletePrefixes.length > 0 && (
+                            <BubblePressable
+                                onPress={insertSlash}
+                                hitSlop={6}
+                                style={styles.mobileIconButton}
+                                accessibilityRole="button"
+                                accessibilityLabel="Command"
+                            >
+                                <Text style={{ color: theme.colors.text, fontSize: 26, lineHeight: 28 }}>/</Text>
                             </BubblePressable>
                         )}
 

@@ -15,6 +15,7 @@ describe('supportsImageAttachmentsForFlavor', () => {
     });
 
     it('rejects Gemini, OpenClaw, and unknown explicit flavors', () => {
+        expect(supportsImageAttachmentsForFlavor('opencode')).toBe(true);
         expect(supportsImageAttachmentsForFlavor('gemini')).toBe(false);
         expect(supportsImageAttachmentsForFlavor('openclaw')).toBe(false);
         expect(supportsImageAttachmentsForFlavor('custom-agent')).toBe(false);
