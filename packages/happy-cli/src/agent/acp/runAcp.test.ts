@@ -9,6 +9,9 @@ const mocks = vi.hoisted(() => {
     onUserMessage: vi.fn((handler: (message: any) => void) => {
       userMessageHandler = handler;
     }),
+    onFileEvent: vi.fn(),
+    trackAttachmentDownload: vi.fn(),
+    downloadAndDecryptAttachment: vi.fn(async () => null),
     keepAlive: vi.fn(),
     sendSessionProtocolMessage: vi.fn(),
     sendSessionEvent: vi.fn(),
@@ -41,6 +44,7 @@ const mocks = vi.hoisted(() => {
 
   return {
     mockReadSettings: vi.fn(async () => ({ machineId: 'machine-1', sandboxConfig: undefined })),
+    mockReadOpenCodeMessagesForBackfill: vi.fn(async () => [] as { role: string; text: string; timestamp?: number }[]),
     mockApiCreate: vi.fn(),
     mockGetOrCreateMachine: vi.fn(async () => ({})),
     mockGetOrCreateSession: vi.fn(async () => ({ id: 'session-1' })),
@@ -116,6 +120,10 @@ vi.mock('@/ui/logger', () => ({
   logger: {
     debug: mocks.mockLoggerDebug,
   },
+}));
+
+vi.mock('@/sessionHistory', () => ({
+  readOpenCodeMessagesForBackfill: mocks.mockReadOpenCodeMessagesForBackfill,
 }));
 
 vi.mock('./AcpBackend', () => ({
@@ -247,10 +255,12 @@ describe('runAcp', () => {
 
     expect(mocks.backendState.constructorArgs.command).toBe('opencode');
     expect(mocks.backendState.constructorArgs.args).toEqual(['--acp']);
-    expect(mocks.backendState.prompts[0]).toEqual({
-      sessionId: 'acp-session-1',
-      prompt: 'Build a test plan',
-    });
+    expect(mocks.backendState.prompts[0].sessionId).toBe('acp-session-1');
+    // First turn carries the user text plus the injected change-title
+    // instruction (wrapped in happy-system markers).
+    expect(mocks.backendState.prompts[0].prompt).toContain('Build a test plan');
+    expect(mocks.backendState.prompts[0].prompt).toContain('change_title');
+    expect(mocks.backendState.prompts[0].prompt).toContain('<happy-system>');
 
     const envelopeTypes = mocks.mockSession.sendSessionProtocolMessage.mock.calls.map(([envelope]) => envelope.ev.t);
     expect(envelopeTypes).toEqual(['turn-start', 'text', 'tool-call-start', 'tool-call-end', 'turn-end']);
@@ -265,6 +275,45 @@ describe('runAcp', () => {
       'Tool: ReadFile completed (callId=tool-1)',
       'Status: idle',
     ]));
+  });
+
+  it('injects the change-title instruction only on the first turn', async () => {
+    const runPromise = runAcp({
+      credentials: { token: 'token', encryption: { type: 'legacy', secret: new Uint8Array(32) } },
+      agentName: 'opencode',
+      command: 'opencode',
+      args: ['--acp'],
+    });
+
+    await vi.waitFor(() => {
+      expect(mocks.getUserMessageHandler()).toBeTypeOf('function');
+    });
+
+    mocks.getUserMessageHandler()!({
+      role: 'user',
+      content: { type: 'text', text: 'First message' },
+    });
+    await vi.waitFor(() => {
+      expect(mocks.backendState.prompts).toHaveLength(1);
+    });
+
+    mocks.getUserMessageHandler()!({
+      role: 'user',
+      content: { type: 'text', text: 'Second message' },
+    });
+    await vi.waitFor(() => {
+      expect(mocks.backendState.prompts).toHaveLength(2);
+    });
+
+    await mocks.getKillHandler()!();
+    await runPromise;
+
+    // First turn: user text + injected change-title instruction.
+    expect(mocks.backendState.prompts[0].prompt).toContain('First message');
+    expect(mocks.backendState.prompts[0].prompt).toContain('change_title');
+    // Follow-up turns: just the user text, no injected scaffolding.
+    expect(mocks.backendState.prompts[1].prompt).toBe('Second message');
+    expect(mocks.backendState.prompts[1].prompt).not.toContain('change_title');
   });
 
   it('registers abort handler that cancels the ACP backend session', async () => {
@@ -653,5 +702,133 @@ describe('runAcp', () => {
     expect(mocks.backendState.setConfigOptionCalls).toEqual([]);
     expect(mocks.backendState.setModeCalls).toEqual([]);
     expect(mocks.backendState.setModelCalls).toEqual([]);
+  });
+
+  it('backfills on-disk history as envelopes when resuming an opencode session', async () => {
+    mocks.mockReadOpenCodeMessagesForBackfill.mockResolvedValueOnce([
+      { role: 'user', text: 'old question', timestamp: 1_700_000_001_000 },
+      { role: 'assistant', text: 'old answer', timestamp: 1_700_000_002_000 },
+      { role: 'assistant', text: 'missing timestamp' },
+    ]);
+
+    const runPromise = runAcp({
+      credentials: { token: 'token', encryption: { type: 'legacy', secret: new Uint8Array(32) } },
+      agentName: 'opencode',
+      command: 'opencode',
+      args: ['acp'],
+      resumeSessionId: 'ses_resume',
+    });
+
+    await vi.waitFor(() => {
+      expect(mocks.mockSession.sendSessionProtocolMessage.mock.calls.length).toBeGreaterThanOrEqual(3);
+    });
+
+    await mocks.getKillHandler()!();
+    await runPromise;
+
+    expect(mocks.mockReadOpenCodeMessagesForBackfill).toHaveBeenCalledWith('ses_resume', 200);
+
+    const envelopes = mocks.mockSession.sendSessionProtocolMessage.mock.calls.map(([envelope]) => envelope);
+    expect(envelopes.map((e: any) => e.role)).toEqual(['user', 'agent', 'agent']);
+    expect(envelopes.map((e: any) => e.ev)).toEqual([
+      { t: 'text', text: 'old question' },
+      { t: 'text', text: 'old answer' },
+      { t: 'text', text: 'missing timestamp' },
+    ]);
+    // Agent envelopes must carry a `turn` or the app reducer drops them
+    // (typesRaw.ts). The user envelope needs none. Consecutive assistant
+    // messages under the same user turn share one synthetic turn id.
+    expect(envelopes[0].turn).toBeUndefined();
+    expect(typeof envelopes[1].turn).toBe('string');
+    expect(envelopes[1].turn.length).toBeGreaterThan(0);
+    expect(envelopes[2].turn).toBe(envelopes[1].turn);
+    // Envelope times must be strictly increasing even without timestamps.
+    const times = envelopes.map((e: any) => e.time);
+    expect(times[0]).toBe(1_700_000_001_000);
+    expect(times[1]).toBe(1_700_000_002_000);
+    expect(times[2]).toBe(1_700_000_002_001);
+  });
+
+  it('assigns a fresh turn id to each run of assistant messages between user turns', async () => {
+    mocks.mockReadOpenCodeMessagesForBackfill.mockResolvedValueOnce([
+      { role: 'user', text: 'q1', timestamp: 1 },
+      { role: 'assistant', text: 'a1', timestamp: 2 },
+      { role: 'user', text: 'q2', timestamp: 3 },
+      { role: 'assistant', text: 'a2', timestamp: 4 },
+    ]);
+
+    const runPromise = runAcp({
+      credentials: { token: 'token', encryption: { type: 'legacy', secret: new Uint8Array(32) } },
+      agentName: 'opencode',
+      command: 'opencode',
+      args: ['acp'],
+      resumeSessionId: 'ses_turns',
+    });
+
+    await vi.waitFor(() => {
+      expect(mocks.mockSession.sendSessionProtocolMessage.mock.calls.length).toBeGreaterThanOrEqual(4);
+    });
+
+    await mocks.getKillHandler()!();
+    await runPromise;
+
+    const envelopes = mocks.mockSession.sendSessionProtocolMessage.mock.calls.map(([envelope]) => envelope);
+    expect(envelopes.map((e: any) => e.role)).toEqual(['user', 'agent', 'user', 'agent']);
+    // Each assistant run gets its own turn id, separated by user messages.
+    expect(envelopes[0].turn).toBeUndefined();
+    expect(envelopes[2].turn).toBeUndefined();
+    expect(typeof envelopes[1].turn).toBe('string');
+    expect(typeof envelopes[3].turn).toBe('string');
+    expect(envelopes[3].turn).not.toBe(envelopes[1].turn);
+  });
+
+  it('does not read backfill history without a resumeSessionId or for non-opencode agents', async () => {
+    const runPromise = runAcp({
+      credentials: { token: 'token', encryption: { type: 'legacy', secret: new Uint8Array(32) } },
+      agentName: 'gemini',
+      command: 'gemini',
+      args: ['--experimental-acp'],
+      resumeSessionId: 'ses_other',
+    });
+
+    await vi.waitFor(() => {
+      expect(mocks.backendState.startSessionCalls).toBe(1);
+    });
+
+    await mocks.getKillHandler()!();
+    await runPromise;
+
+    expect(mocks.mockReadOpenCodeMessagesForBackfill).not.toHaveBeenCalled();
+  });
+
+  it('keeps the session alive when backfill reading fails', async () => {
+    mocks.mockReadOpenCodeMessagesForBackfill.mockRejectedValueOnce(new Error('disk error'));
+
+    const runPromise = runAcp({
+      credentials: { token: 'token', encryption: { type: 'legacy', secret: new Uint8Array(32) } },
+      agentName: 'opencode',
+      command: 'opencode',
+      args: ['acp'],
+      resumeSessionId: 'ses_broken',
+    });
+
+    await vi.waitFor(() => {
+      expect(mocks.getUserMessageHandler()).toBeTypeOf('function');
+    });
+
+    // A new prompt still round-trips after the failed backfill.
+    mocks.getUserMessageHandler()!({
+      role: 'user',
+      content: { type: 'text', text: 'still works' },
+    });
+
+    await vi.waitFor(() => {
+      expect(mocks.backendState.prompts).toHaveLength(1);
+    });
+
+    await mocks.getKillHandler()!();
+    await runPromise;
+
+    expect(mocks.mockLoggerDebug.mock.calls.some(([message]) => String(message).includes('Resume backfill failed'))).toBe(true);
   });
 });

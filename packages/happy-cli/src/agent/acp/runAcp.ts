@@ -7,6 +7,8 @@ import { AcpBackend, type AcpPermissionHandler } from './AcpBackend';
 import { DefaultTransport } from '@/agent/transport';
 import { AcpSessionManager } from './AcpSessionManager';
 import type { SessionEnvelope } from '@slopus/happy-wire';
+import { createEnvelope } from '@slopus/happy-wire';
+import { readOpenCodeMessagesForBackfill } from '@/sessionHistory';
 import { logger } from '@/ui/logger';
 import { MessageQueue2 } from '@/utils/MessageQueue2';
 import { hashObject } from '@/utils/deterministicJson';
@@ -18,6 +20,8 @@ import { notifyDaemonSessionStarted } from '@/daemon/controlClient';
 import { decodeBase64, encodeBase64 } from '@/api/encryption';
 import { registerKillSessionHandler } from '@/claude/registerKillSessionHandler';
 import { startHappyServer } from '@/claude/utils/startHappyServer';
+import { CHANGE_TITLE_INSTRUCTION } from '@/gemini/constants';
+import { stripHappySystemBlocks, wrapHappySystem } from '@/codex/codexPrompt';
 import { projectPath } from '@/projectPath';
 import { BasePermissionHandler, type PermissionResult } from '@/utils/BasePermissionHandler';
 import { connectionState } from '@/utils/serverConnectionErrors';
@@ -32,6 +36,12 @@ import type { SessionConfigOption, SessionModeState, SessionModelState } from '@
 import { materializeNonImageAttachments } from '@/utils/attachmentFiles';
 
 const TURN_TIMEOUT_MS = 5 * 60 * 1000;
+/**
+ * Cap on how many historical messages a resume backfill replays into the
+ * fresh Happy session UI. Mirrors the Claude/Codex fork backfill cap; keeps
+ * resume snappy while older history stays in the read-only detail page.
+ */
+const RESUME_BACKFILL_MAX_MESSAGES = 200;
 const ACP_EVENT_PREVIEW_CHARS = 240;
 const ACP_RAW_PREVIEW_CHARS = 2000;
 const ACP_COLOR_RESET = '\u001b[0m';
@@ -408,6 +418,17 @@ function resolveRequestedLegacyModelCode(models: SessionModelState, requested: s
 class GenericAcpPermissionHandler extends BasePermissionHandler implements AcpPermissionHandler {
   private readonly logPrefix: string;
 
+  // Exact tool names / id prefixes that always auto-approve. change_title is
+  // injected by Happy itself (see CHANGE_TITLE_INSTRUCTION) so it must never
+  // block on a user prompt. Exact match (no substring) guards against crafted
+  // names like `change_title_and_run_command`.
+  private static readonly ALWAYS_AUTO_APPROVE_NAMES: ReadonlySet<string> = new Set([
+    'change_title',
+    'happy__change_title',
+    'mcp__happy__change_title',
+  ]);
+  private static readonly ALWAYS_AUTO_APPROVE_ID_PREFIXES: readonly string[] = ['change_title'];
+
   constructor(session: ApiSessionClient, agentName: string) {
     super(session);
     this.logPrefix = `[${agentName}]`;
@@ -417,7 +438,24 @@ class GenericAcpPermissionHandler extends BasePermissionHandler implements AcpPe
     return this.logPrefix;
   }
 
+  private shouldAutoApprove(toolName: string, toolCallId: string): boolean {
+    if (GenericAcpPermissionHandler.ALWAYS_AUTO_APPROVE_NAMES.has(toolName)) {
+      return true;
+    }
+    const segments = toolCallId.split(':');
+    for (const prefix of GenericAcpPermissionHandler.ALWAYS_AUTO_APPROVE_ID_PREFIXES) {
+      if (segments.some((segment) => segment === prefix || segment.startsWith(`${prefix}-`))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   async handleToolCall(toolCallId: string, toolName: string, input: unknown): Promise<PermissionResult> {
+    if (this.shouldAutoApprove(toolName, toolCallId)) {
+      logger.debug(`${this.logPrefix} Auto-approving tool ${toolName} (${toolCallId})`);
+      return { decision: 'approved' };
+    }
     return new Promise<PermissionResult>((resolve, reject) => {
       this.pendingRequests.set(toolCallId, {
         resolve,
@@ -906,6 +944,51 @@ export async function runAcp(opts: {
   try {
     const started = await backend.startSession();
     acpSessionId = started.sessionId;
+
+    // Resume backfill: the ACP session/load replay is suppressed inside
+    // AcpBackend (it would arrive as unstructured chunks), so when resuming
+    // an OpenCode session we read the on-disk history directly and push it
+    // into the fresh Happy session as text envelopes — the same pattern as
+    // the Claude/Codex fork backfill. Failures only log; the live session
+    // must start regardless.
+    if (opts.resumeSessionId && opts.agentName === 'opencode') {
+      try {
+        const history = await readOpenCodeMessagesForBackfill(opts.resumeSessionId, RESUME_BACKFILL_MAX_MESSAGES);
+        let lastTime = 0;
+        // Agent envelopes without a `turn` are dropped by the app reducer, so
+        // group each run of assistant/tool messages under a synthetic turn id
+        // (a fresh turn starts after every user message). User envelopes need
+        // no turn.
+        let currentTurn: string | null = null;
+        const envelopes: SessionEnvelope[] = [];
+        for (const message of history) {
+          // Strip the happy-system scaffolding (change-title instruction /
+          // option-chips prompt) we inject into the first user turn, so it
+          // doesn't resurface as if the user had typed it on resume.
+          const text = message.role === 'user' ? stripHappySystemBlocks(message.text) : message.text;
+          if (text.trim().length === 0) {
+            continue;
+          }
+          // Keep envelope times strictly increasing even when timestamps
+          // are missing or duplicated in the source storage.
+          lastTime = Math.max(lastTime + 1, message.timestamp ?? 0);
+          if (message.role === 'user') {
+            currentTurn = null;
+            envelopes.push(createEnvelope('user', { t: 'text', text }, { time: lastTime }));
+          } else {
+            if (!currentTurn) {
+              currentTurn = randomUUID();
+            }
+            envelopes.push(createEnvelope('agent', { t: 'text', text }, { turn: currentTurn, time: lastTime }));
+          }
+        }
+        sendEnvelopes(envelopes);
+        logger.debug(`[${opts.agentName}] Resume backfill replayed ${envelopes.length} historical messages from ${opts.resumeSessionId}`);
+      } catch (error) {
+        logger.debug(`[${opts.agentName}] Resume backfill failed:`, error);
+      }
+    }
+
     if (verbose) {
       if (!sawSlashCommands) {
         logAcp('muted', `Outgoing slash commands from ${opts.agentName}: not reported yet`);
@@ -918,6 +1001,7 @@ export async function runAcp(opts: {
       }
     }
 
+    let injectedTitleInstruction = false;
     while (!shouldExit) {
       const waitSignal = abortController.signal;
       const batch = await messageQueue.waitForMessagesAndGetAsString(waitSignal);
@@ -946,7 +1030,17 @@ export async function runAcp(opts: {
           await switchModelIfRequested(batch.mode.model);
         }
         const fileContext = await materializeNonImageAttachments(opts.resumeSessionId ?? session.sessionId, batch.attachments);
-        await backend.sendPrompt(acpSessionId, [batch.message, fileContext.context].filter(Boolean).join('\n\n'));
+        // On the first turn of the process, append the change-title instruction
+        // (wrapped in happy-system markers so resume backfill can strip it) so
+        // the agent auto-names the session — the happy MCP change_title tool is
+        // registered above and auto-approved by the permission handler. Mirrors
+        // Claude's system prompt and Codex's first-turn injection.
+        const promptParts = [batch.message, fileContext.context].filter(Boolean) as string[];
+        if (!injectedTitleInstruction) {
+          promptParts.push(wrapHappySystem(CHANGE_TITLE_INSTRUCTION));
+          injectedTitleInstruction = true;
+        }
+        await backend.sendPrompt(acpSessionId, promptParts.join('\n\n'));
         await turnEnded;
         sendEnvelopes(sessionManager.endTurn('completed'));
         session.sendSessionEvent({ type: 'ready' });

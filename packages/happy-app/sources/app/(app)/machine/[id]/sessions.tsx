@@ -14,6 +14,7 @@ import {
 } from '@/sync/ops';
 import { t } from '@/text';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
+import { ProviderIcon } from '@/components/ProviderIcon';
 import { formatPathRelativeToHome, formatLastSeen } from '@/utils/sessionUtils';
 import { isMachineOnline } from '@/utils/machineUtils';
 import { useUnistyles, StyleSheet } from 'react-native-unistyles';
@@ -63,12 +64,6 @@ function datePresetLabel(preset: DatePreset): string {
 type ListRow =
     | { type: 'header'; key: string; label: string }
     | { type: 'session'; key: string; item: ProviderSessionMeta };
-
-const PROVIDER_ICONS: Record<ProviderSessionProvider, keyof typeof Ionicons.glyphMap> = {
-    claude: 'sparkles-outline',
-    codex: 'code-slash-outline',
-    opencode: 'terminal-outline',
-};
 
 const styles = StyleSheet.create((theme) => ({
     searchContainer: {
@@ -298,11 +293,7 @@ export default function MachineProviderSessionsScreen() {
                 subtitle={subtitleParts.filter(Boolean).join('\n') || undefined}
                 subtitleLines={2}
                 leftElement={
-                    <Ionicons
-                        name={PROVIDER_ICONS[item.provider]}
-                        size={20}
-                        color={theme.colors.textSecondary}
-                    />
+                    <ProviderIcon kind={item.provider} size={20} />
                 }
                 rightElement={activeSessionId ? (
                     <View style={styles.activeBadge}>

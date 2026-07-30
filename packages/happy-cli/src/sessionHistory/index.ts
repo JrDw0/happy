@@ -22,7 +22,7 @@ import {
 } from './types';
 
 export * from './types';
-export { readProviderSession } from './readSession';
+export { readProviderSession, readOpenCodeMessagesForBackfill } from './readSession';
 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 500;

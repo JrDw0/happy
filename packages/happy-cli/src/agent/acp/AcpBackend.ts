@@ -328,6 +328,15 @@ export class AcpBackend implements AgentBackend {
   private connection: ClientSideConnection | null = null;
   private acpSessionId: string | null = null;
   private disposed = false;
+  /**
+   * True while a `session/load` request is in flight. The ACP spec replays
+   * the whole conversation as session/update notifications before the
+   * response arrives; we suppress those message-shaped updates because the
+   * resume backfill (runAcp) already pushes the history from local storage
+   * — letting them through would duplicate history and pollute the
+   * streaming text accumulator.
+   */
+  private suppressingReplay = false;
   /** Track active tool calls to prevent duplicate events */
   private activeToolCalls = new Set<string>();
   private toolCallTimeouts = new Map<string, NodeJS.Timeout>();
@@ -858,7 +867,13 @@ export class AcpBackend implements AgentBackend {
 
         logger.debug(`[AcpBackend] Loading existing session: ${resumeSessionId}`);
 
-        const loadSessionResponse = await callSessionSetup('LoadSession', () => this.connection!.loadSession(loadSessionRequest));
+        this.suppressingReplay = true;
+        let loadSessionResponse;
+        try {
+          loadSessionResponse = await callSessionSetup('LoadSession', () => this.connection!.loadSession(loadSessionRequest));
+        } finally {
+          this.suppressingReplay = false;
+        }
         sessionResponse = {
           ...(loadSessionResponse as unknown as Omit<NewSessionResponse, 'sessionId'>),
           sessionId: resumeSessionId,
@@ -975,6 +990,19 @@ export class AcpBackend implements AgentBackend {
 
     const sessionUpdateType = update.sessionUpdate;
     const updateType = sessionUpdateType as string | undefined;
+
+    // Drop message-shaped updates replayed by session/load; config/mode/model
+    // updates still flow through so session metadata stays correct.
+    if (this.suppressingReplay && (
+      sessionUpdateType === 'agent_message_chunk' ||
+      sessionUpdateType === 'agent_thought_chunk' ||
+      sessionUpdateType === 'user_message_chunk' ||
+      sessionUpdateType === 'tool_call' ||
+      sessionUpdateType === 'tool_call_update'
+    )) {
+      logger.debug(`[AcpBackend] Suppressing session/load replay update: ${sessionUpdateType}`);
+      return;
+    }
 
     logger.debug(`[AcpBackend] sessionUpdate: ${sessionUpdateType}`, JSON.stringify(update));
     if (this.options.verbose) {

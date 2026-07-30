@@ -129,7 +129,7 @@ function buildSessionRowData(session: Session, unreadSessionIds?: Set<string>): 
         flavor: session.metadata?.flavor ?? null,
         clientId: session.metadata?.client?.id ?? null,
         identityLine: getSessionIdentityLine(session),
-        providerKind: session.metadata?.provider?.kind ?? null,
+        providerKind: session.metadata?.provider?.kind ?? session.metadata?.flavor ?? null,
         modelName: rigIdentity?.modelName ?? null,
         activitySummary: rigActivity.length > 0
             ? rigActivity.map((item) => `${item.count}${item.queued ? `+${item.queued}` : ''} ${item.key}`).join(' · ')

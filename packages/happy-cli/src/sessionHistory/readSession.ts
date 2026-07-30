@@ -207,7 +207,7 @@ function normalizeOpenCodeRole(role: unknown): 'user' | 'assistant' | undefined 
     return role === 'user' ? 'user' : role === 'assistant' ? 'assistant' : undefined;
 }
 
-async function readOpenCodeMessagesJson(sessionId: string): Promise<ProviderSessionMessage[]> {
+async function readOpenCodeMessagesJson(sessionId: string, maxMessages?: number): Promise<ProviderSessionMessage[]> {
     // Guard against path traversal via sessionId
     if (/[\/\\]/.test(sessionId) || sessionId.includes('..')) {
         return [];
@@ -219,8 +219,12 @@ async function readOpenCodeMessagesJson(sessionId: string): Promise<ProviderSess
     } catch {
         return [];
     }
+    // First pass: read only the small message metadata files so we can sort
+    // and (optionally) window before touching the potentially large part
+    // files. This keeps backfill IO proportional to the window size, not to
+    // the total session length.
     const files = await collectFilesWithExtension(messageDir, '.json');
-    const entries: { ts: number; role: 'user' | 'assistant'; text: string }[] = [];
+    const metas: { ts: number; role: 'user' | 'assistant'; id: string }[] = [];
     for (const filePath of files) {
         let value: any;
         try {
@@ -240,21 +244,24 @@ async function readOpenCodeMessagesJson(sessionId: string): Promise<ProviderSess
             continue;
         }
         const ts = parseTimestampToMs(value.time?.created) ?? 0;
-        const text = await collectPartsText(join(baseDir, 'storage', 'part', value.id));
+        metas.push({ ts, role, id: value.id });
+    }
+    metas.sort((a, b) => a.ts - b.ts);
+    const windowed = maxMessages !== undefined && metas.length > maxMessages
+        ? metas.slice(metas.length - maxMessages)
+        : metas;
+    const messages: ProviderSessionMessage[] = [];
+    for (const meta of windowed) {
+        const text = await collectPartsText(join(baseDir, 'storage', 'part', meta.id));
         if (text.trim().length === 0) {
             continue;
         }
-        entries.push({ ts, role, text });
-    }
-    entries.sort((a, b) => a.ts - b.ts);
-    const messages: ProviderSessionMessage[] = [];
-    for (const entry of entries) {
-        pushMessage(messages, entry.role, entry.text, entry.ts > 0 ? entry.ts : undefined);
+        pushMessage(messages, meta.role, text, meta.ts > 0 ? meta.ts : undefined);
     }
     return messages;
 }
 
-async function readOpenCodeMessagesSqlite(sessionId: string): Promise<ProviderSessionMessage[]> {
+async function readOpenCodeMessagesSqlite(sessionId: string, maxMessages?: number): Promise<ProviderSessionMessage[]> {
     const dbPath = join(getOpenCodeBaseDir(), 'opencode.db');
     try {
         await stat(dbPath);
@@ -280,12 +287,24 @@ async function readOpenCodeMessagesSqlite(sessionId: string): Promise<ProviderSe
     }
 
     try {
-        const msgRows = db
-            .prepare('SELECT id, time_created, data FROM message WHERE session_id = ? ORDER BY time_created ASC')
-            .all(sessionId) as { id: string; time_created: number; data: string }[];
-        const partRows = db
-            .prepare('SELECT message_id, data FROM part WHERE session_id = ? ORDER BY time_created ASC')
-            .all(sessionId) as { message_id: string; data: string }[];
+        // With a window, fetch only the newest N messages (then restore
+        // chronological order) and only the parts belonging to them.
+        const msgRows = (maxMessages !== undefined
+            ? (db
+                .prepare('SELECT id, time_created, data FROM message WHERE session_id = ? ORDER BY time_created DESC LIMIT ?')
+                .all(sessionId, maxMessages) as { id: string; time_created: number; data: string }[]).reverse()
+            : db
+                .prepare('SELECT id, time_created, data FROM message WHERE session_id = ? ORDER BY time_created ASC')
+                .all(sessionId) as { id: string; time_created: number; data: string }[]);
+        const partRows = maxMessages !== undefined
+            ? (msgRows.length > 0
+                ? db
+                    .prepare(`SELECT message_id, data FROM part WHERE message_id IN (${msgRows.map(() => '?').join(', ')}) ORDER BY time_created ASC`)
+                    .all(...msgRows.map((row) => row.id)) as { message_id: string; data: string }[]
+                : [])
+            : db
+                .prepare('SELECT message_id, data FROM part WHERE session_id = ? ORDER BY time_created ASC')
+                .all(sessionId) as { message_id: string; data: string }[];
 
         const partsByMessage = new Map<string, string[]>();
         for (const row of partRows) {
@@ -329,17 +348,31 @@ async function readOpenCodeMessagesSqlite(sessionId: string): Promise<ProviderSe
     }
 }
 
-async function readOpenCodeMessages(sessionId: string): Promise<ProviderSessionMessage[]> {
+async function readOpenCodeMessages(sessionId: string, maxMessages?: number): Promise<ProviderSessionMessage[]> {
     // If the JSON message directory exists, use JSON results (even if empty);
     // only fall back to SQLite when the directory doesn't exist at all.
     const baseDir = getOpenCodeBaseDir();
     const messageDir = join(baseDir, 'storage', 'message', sessionId);
     try {
         await stat(messageDir);
-        return await readOpenCodeMessagesJson(sessionId);
+        return await readOpenCodeMessagesJson(sessionId, maxMessages);
     } catch {
-        return readOpenCodeMessagesSqlite(sessionId);
+        return readOpenCodeMessagesSqlite(sessionId, maxMessages);
     }
+}
+
+/**
+ * Read the most recent `maxMessages` messages of an on-disk OpenCode session
+ * for resume backfill. Unlike the paged reader, this touches only the part
+ * files (or SQLite rows) inside the window, so the IO cost is bounded by the
+ * window size rather than the total session length.
+ */
+export async function readOpenCodeMessagesForBackfill(sessionId: string, maxMessages: number): Promise<ProviderSessionMessage[]> {
+    const trimmed = sessionId.trim();
+    if (!trimmed) {
+        return [];
+    }
+    return readOpenCodeMessages(trimmed, Math.max(1, Math.trunc(maxMessages)));
 }
 
 // --- Entry point ------------------------------------------------------------

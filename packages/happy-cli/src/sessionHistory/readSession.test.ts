@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { readProviderSession } from './readSession';
+import { readProviderSession, readOpenCodeMessagesForBackfill } from './readSession';
 
 /**
  * Fixture-based tests for the on-disk session transcript reader. Each
@@ -150,6 +150,63 @@ describe('readProviderSession - opencode (json backend)', () => {
         expect(result.messages[1].role).toBe('assistant');
         expect(result.messages[1].text).toContain('[Tool: bash]');
         expect(result.messages[1].text).toContain('Done');
+    });
+});
+
+describe('readOpenCodeMessagesForBackfill', () => {
+    async function writeOpenCodeMessage(sessionId: string, id: string, role: string, created: number, partText?: string): Promise<void> {
+        const base = join(testDir, 'xdg', 'opencode', 'storage');
+        const msgDir = join(base, 'message', sessionId);
+        await mkdir(msgDir, { recursive: true });
+        await writeFile(join(msgDir, `${id}.json`), JSON.stringify({ id, role, time: { created } }));
+        if (partText !== undefined) {
+            const partDir = join(base, 'part', id);
+            await mkdir(partDir, { recursive: true });
+            await writeFile(join(partDir, `prt_${id}.json`), JSON.stringify({ id: `prt_${id}`, type: 'text', text: partText }));
+        }
+    }
+
+    it('returns only the most recent maxMessages in chronological order', async () => {
+        const sessionId = 'ses_backfill';
+        for (let i = 0; i < 5; i++) {
+            await writeOpenCodeMessage(sessionId, `msg_${i}`, i % 2 === 0 ? 'user' : 'assistant', 1_700_000_000_000 + i * 1000, `text ${i}`);
+        }
+
+        const messages = await readOpenCodeMessagesForBackfill(sessionId, 2);
+        expect(messages.map((m) => m.text)).toEqual(['text 3', 'text 4']);
+        expect(messages.map((m) => m.role)).toEqual(['assistant', 'user']);
+        expect(messages.map((m) => m.timestamp)).toEqual([1_700_000_003_000, 1_700_000_004_000]);
+    });
+
+    it('does not require part files for messages outside the window', async () => {
+        const sessionId = 'ses_window';
+        // Older messages have no part directories at all; only the newest
+        // two do. The windowed reader must not depend on the older parts.
+        await writeOpenCodeMessage(sessionId, 'msg_old_1', 'user', 1_700_000_001_000);
+        await writeOpenCodeMessage(sessionId, 'msg_old_2', 'assistant', 1_700_000_002_000);
+        await writeOpenCodeMessage(sessionId, 'msg_new_1', 'user', 1_700_000_003_000, 'recent question');
+        await writeOpenCodeMessage(sessionId, 'msg_new_2', 'assistant', 1_700_000_004_000, 'recent answer');
+
+        const messages = await readOpenCodeMessagesForBackfill(sessionId, 2);
+        expect(messages.map((m) => m.text)).toEqual(['recent question', 'recent answer']);
+    });
+
+    it('truncates oversized message text', async () => {
+        const sessionId = 'ses_clamp';
+        await writeOpenCodeMessage(sessionId, 'msg_big', 'user', 1_700_000_001_000, 'x'.repeat(5000));
+
+        const messages = await readOpenCodeMessagesForBackfill(sessionId, 10);
+        expect(messages).toHaveLength(1);
+        expect(messages[0].text.length).toBeLessThan(5000);
+        expect(messages[0].text.endsWith('...[truncated]')).toBe(true);
+    });
+
+    it('returns empty instead of throwing when the session has no storage', async () => {
+        await expect(readOpenCodeMessagesForBackfill('ses_missing', 10)).resolves.toEqual([]);
+    });
+
+    it('returns empty for a blank sessionId', async () => {
+        await expect(readOpenCodeMessagesForBackfill('   ', 10)).resolves.toEqual([]);
     });
 });
 
