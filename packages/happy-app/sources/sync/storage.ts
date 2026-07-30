@@ -34,6 +34,7 @@ import { DecryptedArtifact } from "./artifactTypes";
 import { FeedItem } from "./feedTypes";
 import { getRigActivityIndicators, getRigIdentity } from './rig';
 import { indexSessionsById } from './sessionIdentity';
+import { splitSessionsForList, groupSessionsByDate } from './sessionListGrouping';
 
 // Debounce timer for realtimeMode changes
 let realtimeModeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -96,6 +97,9 @@ export interface SessionRowData {
     createdAt?: number;
     hasDraft: boolean;
     active: boolean;
+    // True archive (user/CLI intent) — inactive sessions without this flag are
+    // merely offline/recoverable and must not be lumped into the archived fold
+    archived: boolean;
     machineId: string | null;
     path: string | null;
     homeDir: string | null;
@@ -138,6 +142,7 @@ function buildSessionRowData(session: Session, unreadSessionIds?: Set<string>): 
         ...(!session.active && { activeAt: session.activeAt, createdAt: session.createdAt }),
         hasDraft: !!session.draft,
         active: session.active,
+        archived: session.metadata?.lifecycleState === 'archived' || session.metadata?.lifecycleState === 'archiveRequested',
         machineId: session.metadata?.machineId ?? null,
         path: session.metadata?.path ?? null,
         homeDir: session.metadata?.homeDir ?? null,
@@ -149,7 +154,7 @@ function buildSessionRowData(session: Session, unreadSessionIds?: Set<string>): 
 
 // Unified list item type for SessionsList component
 export type SessionListViewItem =
-    | { type: 'header'; title: string }
+    | { type: 'header'; title: string; section?: 'offline' | 'archived' }
     | { type: 'active-sessions'; sessions: SessionRowData[] }
     | { type: 'archive-toggle'; hidden: boolean }
     | { type: 'project-group'; displayPath: string; machine: Machine }
@@ -252,22 +257,12 @@ function buildSessionListViewData(
     sessions: Record<string, Session>,
     unreadSessionIds?: Set<string>,
 ): SessionListViewItem[] {
-    // Separate active and inactive sessions
-    const activeSessions: Session[] = [];
-    const inactiveSessions: Session[] = [];
-
-    Object.values(sessions).forEach(session => {
-        // Side chats are hidden children of another session — they render only
-        // inside the parent's sidebar panel, never in the top-level list.
-        if (session.metadata?.isSideChat) {
-            return;
-        }
-        if (isSessionActive(session)) {
-            activeSessions.push(session);
-        } else {
-            inactiveSessions.push(session);
-        }
-    });
+    // Split into active / offline (inactive, recoverable) / archived (explicit intent)
+    const {
+        active: activeSessions,
+        offline: offlineSessions,
+        archived: archivedSessions,
+    } = splitSessionsForList(Object.values(sessions));
 
     // Sort by last activity or creation date (newest first), per user setting — matches applySessions behavior
     // Activity sort keys off the last user-sent message, not updatedAt: updatedAt
@@ -277,7 +272,8 @@ function buildSessionListViewData(
         ? (s: Session) => s.lastMessageSentAt ?? s.createdAt
         : (s: Session) => s.createdAt;
     activeSessions.sort((a, b) => sortKey(b) - sortKey(a));
-    inactiveSessions.sort((a, b) => sortKey(b) - sortKey(a));
+    offlineSessions.sort((a, b) => sortKey(b) - sortKey(a));
+    archivedSessions.sort((a, b) => sortKey(b) - sortKey(a));
 
     // Build unified list view data
     const listData: SessionListViewItem[] = [];
@@ -287,70 +283,36 @@ function buildSessionListViewData(
         listData.push({ type: 'active-sessions', sessions: activeSessions.map(s => buildSessionRowData(s, unreadSessionIds)) });
     }
 
-    // Group inactive sessions by date
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
 
-    let currentDateGroup: Session[] = [];
-    let currentDateString: string | null = null;
-
-    for (const session of inactiveSessions) {
-        const sessionDate = new Date(sortKey(session));
-        const dateString = sessionDate.toDateString();
-
-        if (currentDateString !== dateString) {
-            // Process previous group
-            if (currentDateGroup.length > 0 && currentDateString) {
-                const groupDate = new Date(currentDateString);
-                const sessionDateOnly = new Date(groupDate.getFullYear(), groupDate.getMonth(), groupDate.getDate());
-
-                let headerTitle: string;
-                if (sessionDateOnly.getTime() === today.getTime()) {
-                    headerTitle = 'Today';
-                } else if (sessionDateOnly.getTime() === yesterday.getTime()) {
-                    headerTitle = 'Yesterday';
-                } else {
-                    const diffTime = today.getTime() - sessionDateOnly.getTime();
-                    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-                    headerTitle = `${diffDays} days ago`;
-                }
-
-                listData.push({ type: 'header', title: headerTitle });
-                currentDateGroup.forEach(sess => {
-                    listData.push({ type: 'session', session: buildSessionRowData(sess, unreadSessionIds) });
-                });
-            }
-
-            // Start new group
-            currentDateString = dateString;
-            currentDateGroup = [session];
-        } else {
-            currentDateGroup.push(session);
-        }
-    }
-
-    // Process final group
-    if (currentDateGroup.length > 0 && currentDateString) {
-        const groupDate = new Date(currentDateString);
+    const buildHeaderTitle = (dateString: string): string => {
+        const groupDate = new Date(dateString);
         const sessionDateOnly = new Date(groupDate.getFullYear(), groupDate.getMonth(), groupDate.getDate());
-
-        let headerTitle: string;
         if (sessionDateOnly.getTime() === today.getTime()) {
-            headerTitle = 'Today';
-        } else if (sessionDateOnly.getTime() === yesterday.getTime()) {
-            headerTitle = 'Yesterday';
-        } else {
-            const diffTime = today.getTime() - sessionDateOnly.getTime();
-            const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-            headerTitle = `${diffDays} days ago`;
+            return 'Today';
         }
+        if (sessionDateOnly.getTime() === yesterday.getTime()) {
+            return 'Yesterday';
+        }
+        const diffTime = today.getTime() - sessionDateOnly.getTime();
+        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+        return `${diffDays} days ago`;
+    };
 
-        listData.push({ type: 'header', title: headerTitle });
-        currentDateGroup.forEach(sess => {
-            listData.push({ type: 'session', session: buildSessionRowData(sess, unreadSessionIds) });
-        });
-    }
+    // Group sessions by date and append them with section-tagged headers
+    const appendDateGroupedSessions = (groupSessions: Session[], section: 'offline' | 'archived') => {
+        for (const group of groupSessionsByDate(groupSessions, sortKey)) {
+            listData.push({ type: 'header', title: buildHeaderTitle(group.dateString), section });
+            group.sessions.forEach(sess => {
+                listData.push({ type: 'session', session: buildSessionRowData(sess, unreadSessionIds) });
+            });
+        }
+    };
+
+    appendDateGroupedSessions(offlineSessions, 'offline');
+    appendDateGroupedSessions(archivedSessions, 'archived');
 
     return listData;
 }

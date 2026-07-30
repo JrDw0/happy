@@ -15,7 +15,7 @@ import { useNavigateToSession } from '@/hooks/useNavigateToSession';
 import { useHappyAction } from '@/hooks/useHappyAction';
 import { HappyError } from '@/utils/errors';
 import { SessionActionsAnchor, SessionActionsPopover } from './SessionActionsPopover';
-import { sessionKill } from '@/sync/ops';
+import { sessionArchive, sessionKill, sessionMarkArchivedMetadata } from '@/sync/ops';
 import { isWorktreePath, getRepoPath, getWorktreeName } from '@/utils/worktree';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { useRouter } from 'expo-router';
@@ -240,7 +240,12 @@ const CompactSessionRow = React.memo(({ session, selected, showBorder }: { sessi
     const [archivingSession, performArchive] = useHappyAction(async () => {
         const result = await sessionKill(session.id);
         if (!result.success) {
-            throw new HappyError(result.message || t('sessionInfo.failedToArchiveSession'), false);
+            // CLI unreachable — force-archive via server and mark metadata
+            const archiveResult = await sessionArchive(session.id);
+            if (!archiveResult.success) {
+                throw new HappyError(archiveResult.message || t('sessionInfo.failedToArchiveSession'), false);
+            }
+            await sessionMarkArchivedMetadata(session.id);
         }
     });
 

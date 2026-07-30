@@ -11,29 +11,68 @@ export function useVisibleSessionListViewData(): SessionListViewItem[] | null {
         }
 
         const result: SessionListViewItem[] = [];
-        let hasInactive = false;
+        let hasArchived = false;
+        // Offline (recoverable) sessions stay in the main list; only truly
+        // archived sessions go behind the archive toggle fold.
+        let currentSection: 'offline' | 'archived' | null = null;
+        let pendingProjectGroup: SessionListViewItem | null = null;
 
-        // First pass: add active sessions group and check if inactive sessions exist
         for (const item of data) {
             if (item.type === 'active-sessions') {
                 result.push(item);
-            } else if (item.type === 'session' && !item.session.active) {
-                hasInactive = true;
+                continue;
+            }
+
+            if (item.type === 'header') {
+                currentSection = item.section ?? 'archived';
+                pendingProjectGroup = null;
+                if (currentSection === 'offline') {
+                    result.push(item);
+                }
+                continue;
+            }
+
+            if (item.type === 'project-group') {
+                pendingProjectGroup = item;
+                continue;
+            }
+
+            if (item.type === 'session' && !item.session.active) {
+                const isArchived = item.session.archived || currentSection === 'archived';
+                if (isArchived) {
+                    hasArchived = true;
+                } else {
+                    if (pendingProjectGroup) {
+                        result.push(pendingProjectGroup);
+                        pendingProjectGroup = null;
+                    }
+                    result.push(item);
+                }
             }
         }
 
-        // Insert archive toggle if there are inactive sessions
-        if (hasInactive) {
+        // Insert archive toggle if there are archived sessions
+        if (hasArchived) {
             result.push({ type: 'archive-toggle', hidden: hideInactiveSessions });
         }
 
-        // If not hiding, add all remaining items (headers, project groups, inactive sessions)
-        if (!hideInactiveSessions) {
-            let pendingProjectGroup: SessionListViewItem | null = null;
+        // If not hiding, append archived headers and sessions after the toggle
+        if (hasArchived && !hideInactiveSessions) {
+            currentSection = null;
+            pendingProjectGroup = null;
 
             for (const item of data) {
                 if (item.type === 'active-sessions') {
-                    continue; // already added
+                    continue;
+                }
+
+                if (item.type === 'header') {
+                    currentSection = item.section ?? 'archived';
+                    pendingProjectGroup = null;
+                    if (currentSection === 'archived') {
+                        result.push(item);
+                    }
+                    continue;
                 }
 
                 if (item.type === 'project-group') {
@@ -41,21 +80,15 @@ export function useVisibleSessionListViewData(): SessionListViewItem[] | null {
                     continue;
                 }
 
-                if (item.type === 'session') {
-                    if (!item.session.active) {
+                if (item.type === 'session' && !item.session.active) {
+                    const isArchived = item.session.archived || currentSection === 'archived';
+                    if (isArchived) {
                         if (pendingProjectGroup) {
                             result.push(pendingProjectGroup);
                             pendingProjectGroup = null;
                         }
                         result.push(item);
                     }
-                    continue;
-                }
-
-                pendingProjectGroup = null;
-
-                if (item.type === 'header') {
-                    result.push(item);
                 }
             }
         }

@@ -353,7 +353,7 @@ export function SessionsList({
                 const nextItem = index < data.length - 1 ? data[index + 1] : null;
 
                 const isFirst = prevItem?.type === 'header';
-                const isLast = nextItem?.type === 'header' || nextItem == null || nextItem?.type === 'active-sessions';
+                const isLast = nextItem?.type === 'header' || nextItem == null || nextItem?.type === 'active-sessions' || nextItem?.type === 'archive-toggle';
                 const isSingle = isFirst && isLast;
                 const selected = item.session.id === selectedSessionId;
 
