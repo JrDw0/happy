@@ -1784,12 +1784,14 @@ function NewSessionScreen() {
     );
 
     const composerPlaceholder = selectedAgent === 'codex' ? 'Ask Codex' : `Ask ${agent.label}`;
+    // Solid high-contrast button on Android (glass washes out against the
+    // white composer card); iOS keeps Liquid Glass with a themed icon.
     const sendButtonIconColor = isNativeMobile
-        ? theme.colors.text
+        ? (Platform.OS === 'ios' ? theme.colors.text : (theme.dark ? '#000000' : '#FFFFFF'))
         : theme.colors.button.primary.tint;
     const sendButtonNode = (
         <MobileGlassSurface
-            enabled={isNativeMobile}
+            enabled={isNativeMobile && Platform.OS === 'ios'}
             interactive={!!canSend}
             style={[
                 styles.sendButton,
@@ -1818,10 +1820,7 @@ function NewSessionScreen() {
                         name="arrow-up"
                         size={isNativeMobile ? 18 : 16}
                         color={sendButtonIconColor}
-                        style={[
-                            styles.sendButtonIcon,
-                            { marginTop: Platform.OS === 'web' ? 2 : 0 },
-                        ]}
+                        style={{ marginTop: Platform.OS === 'web' ? 2 : 0 }}
                     />
                 )}
             </Pressable>
@@ -2525,20 +2524,24 @@ const styles = StyleSheet.create((theme) => ({
         height: 38,
         borderRadius: 19,
         marginLeft: 0,
-        backgroundColor: Platform.select({
-            ios: 'transparent',
-            android: theme.colors.glass.backgroundStrong,
-            default: 'transparent',
-        }),
+        backgroundColor: 'transparent',
         borderWidth: StyleSheet.hairlineWidth,
         borderColor: theme.colors.glass.highlight,
         overflow: 'hidden',
     },
     mobileSendButtonActive: {
         opacity: 1,
+        backgroundColor: Platform.select({
+            ios: 'transparent',
+            default: theme.dark ? '#F5F5F5' : theme.colors.button.primary.background,
+        }),
     },
     mobileSendButtonInactive: {
         opacity: 0.56,
+        backgroundColor: Platform.select({
+            ios: 'transparent',
+            default: theme.colors.button.primary.disabled,
+        }),
     },
     sendButtonInner: {
         width: '100%',
@@ -2548,9 +2551,6 @@ const styles = StyleSheet.create((theme) => ({
     },
     sendButtonInnerPressed: {
         opacity: 0.7,
-    },
-    sendButtonIcon: {
-        color: theme.colors.button.primary.tint,
     },
     offlineHelp: {
         flexDirection: 'row',

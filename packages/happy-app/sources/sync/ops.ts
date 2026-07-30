@@ -1116,6 +1116,66 @@ export async function sessionArchive(sessionId: string): Promise<{ success: bool
 }
 
 /**
+ * Mark a session as archived in its encrypted metadata.
+ * The /archive endpoint only flips `active:false` server-side (metadata is E2E
+ * encrypted), so when the CLI is unreachable the app must write the lifecycle
+ * fields itself — otherwise the session shows up as merely "offline".
+ */
+export async function sessionMarkArchivedMetadata(sessionId: string): Promise<void> {
+    const encryption = sync.encryption.getSessionEncryption(sessionId);
+    const session = storage.getState().sessions[sessionId];
+    if (!encryption || !session?.metadata) {
+        return;
+    }
+    if (session.metadata.lifecycleState === 'archived') {
+        return;
+    }
+
+    let currentVersion = session.metadataVersion;
+    let currentMetadata = { ...session.metadata } as Record<string, unknown>;
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+        const nextMetadata = {
+            ...currentMetadata,
+            lifecycleState: 'archived',
+            lifecycleStateSince: Date.now(),
+            archivedBy: 'app',
+            archiveReason: 'Archived from app (CLI unreachable)',
+        };
+
+        const encrypted = await encryption.encryptRaw(nextMetadata);
+        const result = await apiSocket.emitWithAck<{
+            result: 'success' | 'version-mismatch' | 'error';
+            version?: number;
+            metadata?: string;
+            message?: string;
+        }>('update-metadata', {
+            sid: sessionId,
+            metadata: encrypted,
+            expectedVersion: currentVersion,
+        });
+
+        if (result.result === 'success') {
+            const savedMetadata = await encryption.decryptRaw(result.metadata ?? encrypted);
+            if (savedMetadata && typeof savedMetadata === 'object') {
+                storage.getState().updateSessionMetadata(sessionId, savedMetadata, result.version);
+            }
+            return;
+        }
+        if (result.result === 'version-mismatch' && result.version !== undefined && result.metadata) {
+            currentVersion = result.version;
+            const latest = await encryption.decryptRaw(result.metadata) as Record<string, unknown> | null;
+            if (!latest) throw new Error('Failed to decrypt latest session metadata');
+            currentMetadata = latest;
+            continue;
+        }
+        throw new Error(result.message || 'Failed to mark session as archived');
+    }
+
+    throw new Error('Failed to mark session as archived after version conflicts');
+}
+
+/**
  * Permanently delete a session from the server
  * This will remove the session and all its associated data (messages, usage reports, access keys)
  * The session should be inactive/archived before deletion

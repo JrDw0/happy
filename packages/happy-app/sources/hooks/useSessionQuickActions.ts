@@ -2,7 +2,7 @@ import * as React from 'react';
 import { useHappyAction } from '@/hooks/useHappyAction';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
 import { Modal } from '@/modal';
-import { machineResumeSession, sessionArchive, sessionKill, sessionSetAgentModes, sessionUpdateCustomTitle, forkAndSpawn, type ForkSource } from '@/sync/ops';
+import { machineResumeSession, sessionArchive, sessionKill, sessionMarkArchivedMetadata, sessionSetAgentModes, sessionUpdateCustomTitle, forkAndSpawn, type ForkSource } from '@/sync/ops';
 import { maybeCleanupWorktree } from '@/hooks/useWorktreeCleanup';
 import { storage, useLocalSetting, useMachine, useSetting } from '@/sync/storage';
 import { Machine, Session } from '@/sync/storageTypes';
@@ -241,6 +241,7 @@ export function useSessionQuickActions(
         const killResult = await sessionKill(session.id);
         if (!killResult.success) {
             await sessionArchive(session.id);
+            await sessionMarkArchivedMetadata(session.id);
         }
         onAfterArchive?.();
     });

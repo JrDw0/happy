@@ -396,7 +396,9 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         marginLeft: 1,
     },
     mobilePrimaryButtonActive: {
-        backgroundColor: theme.colors.surfaceHighest,
+        // Solid high-contrast fill (same palette as mobileStopButton); the
+        // previous surfaceHighest fill blended into the composer card.
+        backgroundColor: theme.dark ? '#F5F5F5' : theme.colors.button.primary.background,
     },
     mobileStopButton: {
         backgroundColor: theme.dark ? '#F5F5F5' : theme.colors.button.primary.background,
@@ -701,7 +703,10 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
     const compactMobileComposer = Platform.OS !== 'web' && !isRunningOnMac() && screenWidth <= 700;
     const glassEnabled = false;
     const useNativeSettingsMenus = compactMobileComposer;
-    const activeSendIconColor = glassEnabled ? theme.colors.text : theme.colors.button.primary.tint;
+    // Matches mobileStopButton's solid palette: light theme = white icon on
+    // black, dark theme = black icon on near-white. The old primary.tint was
+    // white-on-surfaceHighest — invisible in the light theme.
+    const activeSendIconColor = glassEnabled ? theme.colors.text : (theme.dark ? '#000000' : '#FFFFFF');
     const isSendBlocked = props.blockSend ?? false;
 
     // `hasText` drives only the send-button appearance/enabled state. It's
@@ -2148,11 +2153,10 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                                         <Octicons
                                             name="arrow-up"
                                             size={16}
-                                            color={activeSendIconColor}
-                                            style={[
-                                                styles.sendButtonIcon,
-                                                { marginTop: Platform.OS === 'web' ? 2 : 0 },
-                                            ]}
+                                            // The inactive state sits on the light `disabled` fill, so
+                                            // the white active icon would wash out against it.
+                                            color={canSendMessage ? activeSendIconColor : theme.colors.textSecondary}
+                                            style={{ marginTop: Platform.OS === 'web' ? 2 : 0 }}
                                         />
                                     )}
                                 </BubblePressable>
