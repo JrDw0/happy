@@ -226,3 +226,68 @@ When using --resume:
 2. Original session remains as historical record
 3. All context preserved but under new session identity
 4. Session ID in stream-json output will be the new one, not the resumed one
+
+# Building and Deploying Local Changes
+
+## Quick Build & Deploy
+
+```bash
+# Build and restart daemon with new code (recommended)
+pnpm cli:install
+
+# Or manually:
+pnpm build
+launchctl unload ~/Library/LaunchAgents/engineering.happy.daemon.plist
+launchctl load ~/Library/LaunchAgents/engineering.happy.daemon.plist
+```
+
+## Daemon Management (macOS LaunchAgent)
+
+The daemon runs as a LaunchAgent for auto-start on boot and crash recovery:
+
+**Plist location**: `~/Library/LaunchAgents/engineering.happy.daemon.plist`
+
+```bash
+# Check status
+launchctl list | grep happy
+happy daemon status
+
+# Stop/start
+launchctl unload ~/Library/LaunchAgents/engineering.happy.daemon.plist
+launchctl load ~/Library/LaunchAgents/engineering.happy.daemon.plist
+
+# View logs
+tail -f ~/.happy/logs/launchd-stderr.log
+```
+
+**Key features**:
+- `RunAtLoad: true` — starts on user login
+- `KeepAlive: true` — auto-restarts on crash
+- Logs: `~/.happy/logs/launchd-{stdout,stderr}.log`
+
+## Binary Linking
+
+```
+/opt/homebrew/bin/happy
+  → /opt/homebrew/lib/node_modules/happy (npm global)
+  → /Volumes/dwj/Codes/AI/happy/packages/happy-cli (local dev, via npm link)
+```
+
+LaunchAgent runs `/opt/homebrew/lib/node_modules/happy/bin/happy.mjs`, which resolves to your local `dist/index.mjs`.
+
+## Update Flow
+
+1. Edit code in `src/`
+2. Run `pnpm build` - compiles to `dist/`
+3. LaunchAgent automatically uses the new build on next daemon restart
+4. To apply immediately: stop and start daemon via `launchctl`
+
+## Session Naming (Auto-Title)
+
+Claude sessions auto-name via `change_title` MCP tool:
+- `claudeRemote.ts` appends instruction to first user message
+- Wrapped in `<happy-system>` tags for filtering
+- `sessionProtocolMapper.ts` strips tags before app display
+- Aligns with Gemini/Codex approach
+
+See: `src/claude/claudeRemote.ts`, `src/claude/utils/sessionProtocolMapper.ts`

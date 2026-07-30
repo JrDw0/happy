@@ -103,6 +103,36 @@ npm unlink -g happy && npm i -g happy@latest
 
 To sandbox dev data, set `HAPPY_HOME_DIR=~/.happy-dev` in your shell before running `happy`.
 
+#### Daemon Auto-Restart (macOS LaunchAgent)
+
+The daemon runs as a LaunchAgent for auto-start on boot and crash recovery:
+
+```bash
+# Check status
+launchctl list | grep happy
+happy daemon status
+
+# Stop/start
+launchctl unload ~/Library/LaunchAgents/engineering.happy.daemon.plist
+launchctl load ~/Library/LaunchAgents/engineering.happy.daemon.plist
+
+# View logs
+tail -f ~/.happy/logs/launchd-stderr.log
+```
+
+**Plist location**: `~/Library/LaunchAgents/engineering.happy.daemon.plist`
+
+The LaunchAgent points to `/opt/homebrew/lib/node_modules/happy`, which is symlinked to your local dev directory via `npm link`. After code changes:
+
+1. Run `pnpm --filter happy build` (or `pnpm cli:install` for full cycle)
+2. LaunchAgent automatically uses the new build on next restart
+3. If daemon is running, stop and start it to pick up changes immediately
+
+**Key features**:
+- `RunAtLoad: true` — starts on user login
+- `KeepAlive: true` — auto-restarts on crash
+- Logs: `~/.happy/logs/launchd-{stdout,stderr}.log`
+
 ### Happy Server
 
 ```bash
