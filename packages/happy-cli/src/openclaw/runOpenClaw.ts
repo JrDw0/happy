@@ -23,7 +23,7 @@ import { Credentials, readSettings } from '@/persistence';
 import { initialMachineMetadata } from '@/daemon/run';
 import { createSessionMetadata } from '@/utils/createSessionMetadata';
 import { setupOfflineReconnection } from '@/utils/setupOfflineReconnection';
-import { notifyDaemonSessionStarted } from '@/daemon/controlClient';
+import { notifyDaemonSessionStarted, notifyDaemonSessionEnded } from '@/daemon/controlClient';
 import { encodeBase64 } from '@/api/encryption';
 import { registerKillSessionHandler } from '@/claude/registerKillSessionHandler';
 import { connectionState } from '@/utils/serverConnectionErrors';
@@ -355,6 +355,11 @@ export async function runOpenClaw(opts: RunOpenClawOptions): Promise<void> {
         archivedBy: 'cli',
         archiveReason: 'Session ended',
       }));
+      try {
+        await notifyDaemonSessionEnded(session.sessionId, 'completed');
+      } catch (error) {
+        logger.debug('[openclaw] notifyDaemonSessionEnded failed:', error);
+      }
       session.sendSessionDeath();
       await session.flush();
       await session.close();

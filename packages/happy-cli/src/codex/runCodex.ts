@@ -21,7 +21,7 @@ import { startHappyServer } from '@/claude/utils/startHappyServer';
 import { MessageBuffer } from "@/ui/ink/messageBuffer";
 import { CodexDisplay } from "@/ui/ink/CodexDisplay";
 import { trimIdent } from "@/utils/trimIdent";
-import { notifyDaemonSessionStarted } from "@/daemon/controlClient";
+import { notifyDaemonSessionStarted, notifyDaemonSessionEnded } from "@/daemon/controlClient";
 import { encodeBase64, decodeBase64 } from '@/api/encryption';
 import type { Session as ApiSession, UserMessage } from '@/api/types';
 import { registerKillSessionHandler } from "@/claude/registerKillSessionHandler";
@@ -545,7 +545,13 @@ export async function runCodex(opts: {
                     archivedBy: 'cli',
                     archiveReason: 'User terminated'
                 }));
-                
+
+                try {
+                    await notifyDaemonSessionEnded(session.sessionId, 'kill-rpc');
+                } catch (e) {
+                    logger.debug('[Codex] notifyDaemonSessionEnded failed', e);
+                }
+
                 // Send session death message
                 session.sendSessionDeath();
                 await session.flush();
@@ -1114,6 +1120,15 @@ export async function runCodex(opts: {
         if (reconnectionHandle) {
             logger.debug('[codex]: Cancelling offline reconnection');
             reconnectionHandle.cancel();
+        }
+
+        try {
+            // Main loop exit here is deliberate (Ctrl-C via Ink onExit or
+            // completion) — SIGTERM kills the process before this finally runs,
+            // so OS-shutdown sessions stay auto-resume candidates.
+            await notifyDaemonSessionEnded(session.sessionId, 'completed');
+        } catch (e) {
+            logger.debug('[codex]: notifyDaemonSessionEnded failed', e);
         }
 
         try {

@@ -24,7 +24,7 @@ import { hashObject } from '@/utils/deterministicJson';
 import { projectPath } from '@/projectPath';
 import { startHappyServer } from '@/claude/utils/startHappyServer';
 import { MessageBuffer } from '@/ui/ink/messageBuffer';
-import { notifyDaemonSessionStarted } from '@/daemon/controlClient';
+import { notifyDaemonSessionStarted, notifyDaemonSessionEnded } from '@/daemon/controlClient';
 import { encodeBase64 } from '@/api/encryption';
 import { registerKillSessionHandler } from '@/claude/registerKillSessionHandler';
 import { connectionState } from '@/utils/serverConnectionErrors';
@@ -390,6 +390,12 @@ export async function runGemini(opts: {
           archivedBy: 'cli',
           archiveReason: 'User terminated'
         }));
+
+        try {
+          await notifyDaemonSessionEnded(session.sessionId, 'kill-rpc');
+        } catch (e) {
+          logger.debug('[Gemini] notifyDaemonSessionEnded failed', e);
+        }
 
         session.sendSessionDeath();
         await session.flush();
@@ -1303,6 +1309,13 @@ export async function runGemini(opts: {
     if (reconnectionHandle) {
       logger.debug('[gemini]: Cancelling offline reconnection');
       reconnectionHandle.cancel();
+    }
+
+    try {
+      // Deliberate exit (Ctrl-C or completion) — SIGTERM never reaches this finally
+      await notifyDaemonSessionEnded(session.sessionId, 'completed');
+    } catch (e) {
+      logger.debug('[gemini]: notifyDaemonSessionEnded failed', e);
     }
 
     try {

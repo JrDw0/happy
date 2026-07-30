@@ -16,7 +16,7 @@ import { Credentials, readSettings } from '@/persistence';
 import { initialMachineMetadata } from '@/daemon/run';
 import { createSessionMetadata } from '@/utils/createSessionMetadata';
 import { setupOfflineReconnection } from '@/utils/setupOfflineReconnection';
-import { notifyDaemonSessionStarted } from '@/daemon/controlClient';
+import { notifyDaemonSessionStarted, notifyDaemonSessionEnded } from '@/daemon/controlClient';
 import { decodeBase64, encodeBase64 } from '@/api/encryption';
 import { registerKillSessionHandler } from '@/claude/registerKillSessionHandler';
 import { startHappyServer } from '@/claude/utils/startHappyServer';
@@ -1083,6 +1083,11 @@ export async function runAcp(opts: {
         archivedBy: 'cli',
         archiveReason: 'Session ended',
       }));
+      try {
+        await notifyDaemonSessionEnded(session.sessionId, 'completed');
+      } catch (error) {
+        logger.debug(`[${opts.agentName}] notifyDaemonSessionEnded failed:`, error);
+      }
       session.sendSessionDeath();
       await session.flush();
       await session.close();
