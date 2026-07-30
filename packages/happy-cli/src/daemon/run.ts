@@ -14,7 +14,7 @@ import { startCaffeinate, stopCaffeinate } from '@/utils/caffeinate';
 import packageJson from '../../package.json';
 import { getEnvironmentInfo } from '@/ui/doctor';
 import { spawnHappyCLI } from '@/utils/spawnHappyCLI';
-import { writeDaemonState, DaemonLocallyPersistedState, readDaemonState, acquireDaemonLock, releaseDaemonLock, readPersistedSessions, persistSession } from '@/persistence';
+import { writeDaemonState, DaemonLocallyPersistedState, readDaemonState, acquireDaemonLock, releaseDaemonLock, readPersistedSessions, persistSession, markPersistedSessionEnded, touchPersistedSessionsAlive, readSettings } from '@/persistence';
 import type { PersistedSession } from '@/persistence';
 
 import { cleanupDaemonState, isDaemonRunningCurrentlyInstalledHappyVersion, stopDaemon } from './controlClient';
@@ -230,7 +230,9 @@ export async function startDaemon(): Promise<void> {
       logger.debug(`[DAEMON RUN] Session webhook: ${sessionId}, PID: ${pid}, started by: ${sessionMetadata.startedBy || 'unknown'}, hasEncryption: ${!!encryption}`);
       logger.debug(`[DAEMON RUN] Current tracked sessions before webhook: ${Array.from(pidToTrackedSession.keys()).join(', ')}`);
 
-      // Persist encryption data to disk so it survives daemon restarts
+      // Persist encryption data to disk so it survives daemon restarts.
+      // A fresh entry intentionally clears any previous endedAt marker —
+      // a session announcing itself is alive again.
       if (encryption) {
         persistSession(sessionId, {
           encryptionKey: encodeBase64(encryption.encryptionKey),
@@ -240,6 +242,7 @@ export async function startDaemon(): Promise<void> {
           agentStateVersion: encryption.agentStateVersion,
           metadata: sessionMetadata,
           savedAt: Date.now(),
+          lastAliveAt: Date.now(),
         });
       }
 
@@ -699,17 +702,17 @@ export async function startDaemon(): Promise<void> {
       return sessionIdToFinishedSession.get(happySessionId);
     };
 
-    const fetchServerSessionMetadata = async (sessionId: string, encryptionKey: Uint8Array, encryptionVariant: 'legacy' | 'dataKey'): Promise<Metadata | null> => {
+    const fetchServerSessionMetadata = async (sessionId: string, encryptionKey: Uint8Array, encryptionVariant: 'legacy' | 'dataKey'): Promise<{ metadata: Metadata | null; active: boolean } | null> => {
       try {
         const response = await axios.get(`${configuration.serverUrl}/v1/sessions`, {
           headers: { Authorization: `Bearer ${credentials.token}` },
           timeout: 10_000,
         });
-        const sessions = (response.data as { sessions: { id: string; metadata: string }[] }).sessions;
+        const sessions = (response.data as { sessions: { id: string; metadata: string; active: boolean }[] }).sessions;
         const matched = sessions.find(s => s.id === sessionId);
         if (!matched) return null;
         const decrypted = decrypt(encryptionKey, encryptionVariant, decodeBase64(matched.metadata));
-        return decrypted as Metadata | null;
+        return { metadata: decrypted as Metadata | null, active: !!matched.active };
       } catch (error) {
         logger.debug(`[DAEMON RUN] Failed to fetch session metadata from server: ${error instanceof Error ? error.message : error}`);
         return null;
@@ -735,10 +738,10 @@ export async function startDaemon(): Promise<void> {
         // The title can be edited from another device while this daemon is
         // offline. Always refresh before reconnecting so the child cannot
         // overwrite the latest encrypted metadata with a stale local copy.
-        const serverMetadata = await fetchServerSessionMetadata(happySessionId, tracked.encryption.encryptionKey, tracked.encryption.encryptionVariant);
-        if (serverMetadata) {
-          metadata = serverMetadata;
-          tracked.happySessionMetadataFromLocalWebhook = serverMetadata;
+        const serverSession = await fetchServerSessionMetadata(happySessionId, tracked.encryption.encryptionKey, tracked.encryption.encryptionVariant);
+        if (serverSession?.metadata) {
+          metadata = serverSession.metadata;
+          tracked.happySessionMetadataFromLocalWebhook = serverSession.metadata;
         }
 
         const launch = buildResumeLaunch(
@@ -810,6 +813,11 @@ export async function startDaemon(): Promise<void> {
           }
 
           pidToTrackedSession.delete(pid);
+          // Stopping via daemon RPC is an intentional user action — mark ended
+          // so this session is not auto-resumed on the next daemon start.
+          if (session.happySessionId) {
+            markPersistedSessionEnded(session.happySessionId, 'daemon-stop');
+          }
           logger.debug(`[DAEMON RUN] Removed session ${sessionId} from tracking`);
           return true;
         }
@@ -837,7 +845,10 @@ export async function startDaemon(): Promise<void> {
       stopSession,
       spawnSession,
       requestShutdown: () => requestShutdown('happy-cli'),
-      onHappySessionWebhook
+      onHappySessionWebhook,
+      onHappySessionEnded: (sessionId, reason) => {
+        markPersistedSessionEnded(sessionId, reason ?? 'session-reported');
+      }
     });
 
     // Write initial daemon state (no lock needed for state file)
@@ -900,6 +911,114 @@ export async function startDaemon(): Promise<void> {
     // Connect to server
     apiMachine.connect();
 
+    // After a machine reboot (or daemon crash) session processes are gone but
+    // sessions.json still knows about them. Resume any session the user did
+    // not intentionally end so the app does not show them all as archived.
+    const autoResumeInterruptedSessions = async () => {
+      try {
+        const settings = await readSettings();
+        if (settings?.daemonAutoResumeSessions === false) {
+          logger.debug('[DAEMON RUN] Auto-resume disabled via settings');
+          return;
+        }
+
+        const windowMs = parseInt(process.env.HAPPY_AUTO_RESUME_WINDOW_MS || '') || 72 * 60 * 60 * 1000;
+        const now = Date.now();
+        const persistedSessions = readPersistedSessions();
+
+        const candidates: [string, PersistedSession][] = [];
+        for (const [id, s] of Object.entries(persistedSessions)) {
+          if (s.endedAt) {
+            logger.debug(`[DAEMON RUN] Auto-resume skip ${id}: ended (${s.endedReason ?? 'unknown'})`);
+            continue;
+          }
+          if (!s.lastAliveAt || now - s.lastAliveAt > windowMs) {
+            logger.debug(`[DAEMON RUN] Auto-resume skip ${id}: lastAliveAt missing or outside window`);
+            continue;
+          }
+          candidates.push([id, s]);
+        }
+
+        if (candidates.length === 0) {
+          logger.debug('[DAEMON RUN] Auto-resume: no candidates');
+          return;
+        }
+        logger.debug(`[DAEMON RUN] Auto-resume: ${candidates.length} candidate(s)`);
+
+        for (const [id, s] of candidates) {
+          const metadata = s.metadata;
+
+          if (Array.from(pidToTrackedSession.values()).some(t => t.happySessionId === id)) {
+            logger.debug(`[DAEMON RUN] Auto-resume skip ${id}: already tracked as running`);
+            continue;
+          }
+
+          // The original process may still be alive (daemon-only restart).
+          if (metadata.hostPid) {
+            try {
+              process.kill(metadata.hostPid, 0);
+              logger.debug(`[DAEMON RUN] Auto-resume skip ${id}: original process PID ${metadata.hostPid} still alive`);
+              continue;
+            } catch {
+              // Process is dead — resume candidate.
+            }
+          }
+
+          if (!metadata.claudeSessionId && !metadata.codexThreadId) {
+            logger.debug(`[DAEMON RUN] Auto-resume skip ${id}: flavor '${metadata.flavor ?? 'claude'}' has no resumable session id`);
+            continue;
+          }
+
+          if (!metadata.path) {
+            logger.debug(`[DAEMON RUN] Auto-resume skip ${id}: no working directory in metadata`);
+            continue;
+          }
+          try {
+            await fs.access(metadata.path);
+          } catch {
+            logger.debug(`[DAEMON RUN] Auto-resume skip ${id}: working directory ${metadata.path} no longer exists`);
+            continue;
+          }
+
+          // Double-check with the server: skip sessions archived from another
+          // device or already active elsewhere. Unreachable server (null)
+          // also skips — better to miss one round than spawn a duplicate.
+          const serverSession = await fetchServerSessionMetadata(id, decodeBase64(s.encryptionKey), s.encryptionVariant);
+          if (!serverSession) {
+            logger.debug(`[DAEMON RUN] Auto-resume skip ${id}: session not found on server or server unreachable`);
+            continue;
+          }
+          const serverLifecycle = serverSession.metadata?.lifecycleState;
+          if (serverLifecycle === 'archived' || serverLifecycle === 'archiveRequested') {
+            logger.debug(`[DAEMON RUN] Auto-resume skip ${id}: server metadata says ${serverLifecycle}`);
+            continue;
+          }
+          if (serverSession.active) {
+            logger.debug(`[DAEMON RUN] Auto-resume skip ${id}: session is active on the server (running elsewhere?)`);
+            continue;
+          }
+
+          logger.debug(`[DAEMON RUN] Auto-resume: resuming session ${id} (flavor: ${metadata.flavor ?? 'claude'}, cwd: ${metadata.path})`);
+          try {
+            const result = await resumeSession(id);
+            if (result.type === 'success') {
+              logger.debug(`[DAEMON RUN] Auto-resume: session ${id} resumed successfully`);
+            } else {
+              logger.debug(`[DAEMON RUN] Auto-resume: session ${id} failed: ${'errorMessage' in result ? result.errorMessage : result.type}`);
+            }
+          } catch (error) {
+            logger.debug(`[DAEMON RUN] Auto-resume: session ${id} threw:`, error);
+          }
+
+          // Stagger spawns to avoid a thundering herd right after boot.
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+      } catch (error) {
+        logger.debug('[DAEMON RUN] Auto-resume failed:', error);
+      }
+    };
+    void autoResumeInterruptedSessions();
+
     // Every 60 seconds:
     // 1. Prune stale sessions
     // 2. Check if daemon needs update
@@ -918,16 +1037,24 @@ export async function startDaemon(): Promise<void> {
       }
 
       // Prune stale sessions
-      for (const [pid, _] of pidToTrackedSession.entries()) {
+      const aliveSessionIds: string[] = [];
+      for (const [pid, session] of pidToTrackedSession.entries()) {
         try {
           // Check if process is still alive (signal 0 doesn't kill, just checks)
           process.kill(pid, 0);
+          if (session.happySessionId) {
+            aliveSessionIds.push(session.happySessionId);
+          }
         } catch (error) {
           // Process is dead, remove from tracking
           logger.debug(`[DAEMON RUN] Removing stale session with PID ${pid} (process no longer exists)`);
           pidToTrackedSession.delete(pid);
         }
       }
+
+      // Keep lastAliveAt fresh so a hard shutdown (SIGKILL, power loss) still
+      // leaves these sessions inside the auto-resume window.
+      touchPersistedSessionsAlive(aliveSessionIds);
 
       // Check if daemon needs update by detecting whether `dist/index.mjs` was
       // replaced on disk since the daemon started (npm install rewrites the file).

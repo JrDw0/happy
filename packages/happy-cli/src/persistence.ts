@@ -41,6 +41,8 @@ interface Settings {
   machineId?: string
   machineIdConfirmedByServer?: boolean
   daemonAutoStartWhenRunningHappy?: boolean
+  // Auto-resume interrupted sessions on daemon startup. undefined = enabled.
+  daemonAutoResumeSessions?: boolean
   chromeMode?: boolean
   sandboxConfig?: SandboxConfig
   serverUrl?: string
@@ -423,6 +425,14 @@ export type PersistedSession = {
   agentStateVersion: number;
   metadata: Metadata;
   savedAt: number;
+  // Refreshed by the daemon heartbeat while the session process is alive.
+  // Absent on entries written by older CLI versions — those are never auto-resumed.
+  lastAliveAt?: number;
+  // Set when the user intentionally ended the session (Ctrl-C, kill RPC,
+  // normal completion). Never set on SIGTERM: OS shutdown delivers SIGTERM
+  // and those sessions must remain auto-resume candidates after reboot.
+  endedAt?: number;
+  endedReason?: string;
 };
 
 type SessionsFile = {
@@ -450,14 +460,51 @@ export function readPersistedSessions(): Record<string, PersistedSession> {
   }
 }
 
+function writePersistedSessions(sessions: Record<string, PersistedSession>): void {
+  const tmpFile = configuration.sessionsFile + '.tmp';
+  writeFileSync(tmpFile, JSON.stringify({ sessions }, null, 2), 'utf-8');
+  renameSync(tmpFile, configuration.sessionsFile);
+}
+
 export function persistSession(sessionId: string, session: PersistedSession): void {
   try {
     const existing = readPersistedSessions();
     existing[sessionId] = session;
-    const tmpFile = configuration.sessionsFile + '.tmp';
-    writeFileSync(tmpFile, JSON.stringify({ sessions: existing }, null, 2), 'utf-8');
-    renameSync(tmpFile, configuration.sessionsFile);
+    writePersistedSessions(existing);
   } catch (error) {
     logger.debug(`[PERSISTENCE] Failed to persist session ${sessionId}:`, error);
+  }
+}
+
+export function markPersistedSessionEnded(sessionId: string, reason: string): void {
+  try {
+    const existing = readPersistedSessions();
+    const session = existing[sessionId];
+    if (!session) return;
+    session.endedAt = Date.now();
+    session.endedReason = reason;
+    writePersistedSessions(existing);
+  } catch (error) {
+    logger.debug(`[PERSISTENCE] Failed to mark session ${sessionId} ended:`, error);
+  }
+}
+
+export function touchPersistedSessionsAlive(sessionIds: string[]): void {
+  if (sessionIds.length === 0) return;
+  try {
+    const existing = readPersistedSessions();
+    const now = Date.now();
+    let changed = false;
+    for (const id of sessionIds) {
+      if (existing[id]) {
+        existing[id].lastAliveAt = now;
+        changed = true;
+      }
+    }
+    if (changed) {
+      writePersistedSessions(existing);
+    }
+  } catch (error) {
+    logger.debug('[PERSISTENCE] Failed to touch sessions alive:', error);
   }
 }

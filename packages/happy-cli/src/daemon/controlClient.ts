@@ -95,6 +95,15 @@ export async function listDaemonSessions(): Promise<any[]> {
   return result.children || [];
 }
 
+/**
+ * Best-effort notification that the user intentionally ended a session.
+ * Runs on the process exit path so it must never block for long; if the
+ * daemon is down the persisted entry simply stays an auto-resume candidate.
+ */
+export async function notifyDaemonSessionEnded(sessionId: string, reason?: string): Promise<void> {
+  await daemonPost('/session-ended', { sessionId, reason });
+}
+
 export async function stopDaemonSession(sessionId: string): Promise<boolean> {
   const result = await daemonPost('/stop-session', { sessionId });
   return result.success || false;

@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { acquireDaemonLock, releaseDaemonLock, SandboxConfigSchema } from './persistence';
+import { acquireDaemonLock, releaseDaemonLock, SandboxConfigSchema, persistSession, readPersistedSessions, markPersistedSessionEnded, touchPersistedSessionsAlive, type PersistedSession } from './persistence';
 
 const mockConfiguration = vi.hoisted(() => ({
     daemonLockFile: '',
@@ -132,5 +132,73 @@ describe('acquireDaemonLock', () => {
 
         expect(lockHandle).toBeNull();
         expect(readFileSync(mockConfiguration.daemonLockFile, 'utf-8')).toBe(String(process.pid));
+    });
+});
+
+describe('session end/alive markers', () => {
+    let testDir: string;
+
+    const baseSession = (): PersistedSession => ({
+        encryptionKey: 'a2V5',
+        encryptionVariant: 'dataKey',
+        seq: 1,
+        metadataVersion: 1,
+        agentStateVersion: 1,
+        metadata: {} as PersistedSession['metadata'],
+        savedAt: Date.now(),
+        lastAliveAt: Date.now(),
+    });
+
+    beforeEach(() => {
+        testDir = mkdtempSync(join(tmpdir(), 'happy-sessions-'));
+        mockConfiguration.sessionsFile = join(testDir, 'sessions.json');
+    });
+
+    afterEach(() => {
+        rmSync(testDir, { recursive: true, force: true });
+    });
+
+    it('markPersistedSessionEnded sets endedAt and reason', () => {
+        persistSession('s1', baseSession());
+
+        markPersistedSessionEnded('s1', 'ctrl-c');
+
+        const sessions = readPersistedSessions();
+        expect(sessions['s1'].endedAt).toBeGreaterThan(0);
+        expect(sessions['s1'].endedReason).toBe('ctrl-c');
+    });
+
+    it('markPersistedSessionEnded ignores unknown session ids', () => {
+        persistSession('s1', baseSession());
+
+        markPersistedSessionEnded('unknown', 'ctrl-c');
+
+        const sessions = readPersistedSessions();
+        expect(sessions['s1'].endedAt).toBeUndefined();
+        expect(sessions['unknown']).toBeUndefined();
+    });
+
+    it('re-persisting a session clears a previous ended marker', () => {
+        persistSession('s1', baseSession());
+        markPersistedSessionEnded('s1', 'kill-rpc');
+
+        persistSession('s1', baseSession());
+
+        const sessions = readPersistedSessions();
+        expect(sessions['s1'].endedAt).toBeUndefined();
+        expect(sessions['s1'].endedReason).toBeUndefined();
+    });
+
+    it('touchPersistedSessionsAlive refreshes lastAliveAt only for known ids', () => {
+        const stale = { ...baseSession(), lastAliveAt: 1000 };
+        persistSession('s1', stale);
+        persistSession('s2', { ...baseSession(), lastAliveAt: 2000 });
+
+        touchPersistedSessionsAlive(['s1', 'missing']);
+
+        const sessions = readPersistedSessions();
+        expect(sessions['s1'].lastAliveAt).toBeGreaterThan(1000);
+        expect(sessions['s2'].lastAliveAt).toBe(2000);
+        expect(sessions['missing']).toBeUndefined();
     });
 });

@@ -17,13 +17,15 @@ export function startDaemonControlServer({
   stopSession,
   spawnSession,
   requestShutdown,
-  onHappySessionWebhook
+  onHappySessionWebhook,
+  onHappySessionEnded
 }: {
   getChildren: () => TrackedSession[];
   stopSession: (sessionId: string) => boolean;
   spawnSession: (options: SpawnSessionOptions) => Promise<SpawnSessionResult>;
   requestShutdown: () => void;
   onHappySessionWebhook: (sessionId: string, metadata: Metadata, encryption?: SessionEncryptionData) => void;
+  onHappySessionEnded: (sessionId: string, reason?: string) => void;
 }): Promise<{ port: number; stop: () => Promise<void> }> {
   return new Promise((resolve) => {
     const app = fastify({
@@ -73,6 +75,27 @@ export function startDaemonControlServer({
 
       onHappySessionWebhook(sessionId, metadata, encryptionData);
 
+      return { status: 'ok' as const };
+    });
+
+    // Session reports intentional termination (Ctrl-C, kill RPC, completion).
+    // SIGTERM is deliberately never reported — see PersistedSession.endedAt.
+    typed.post('/session-ended', {
+      schema: {
+        body: z.object({
+          sessionId: z.string(),
+          reason: z.string().optional()
+        }),
+        response: {
+          200: z.object({
+            status: z.literal('ok')
+          })
+        }
+      }
+    }, async (request) => {
+      const { sessionId, reason } = request.body;
+      logger.debug(`[CONTROL SERVER] Session ended: ${sessionId} (${reason ?? 'unspecified'})`);
+      onHappySessionEnded(sessionId, reason);
       return { status: 'ok' as const };
     });
 
