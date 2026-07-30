@@ -81,3 +81,4 @@ happy-workspaces/
 # local APK inspection artifacts
 .apk-check/
 tmp_diff_reg.txt
+.qoder/
