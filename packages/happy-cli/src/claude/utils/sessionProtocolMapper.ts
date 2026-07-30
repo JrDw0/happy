@@ -7,6 +7,7 @@ import {
     type SessionUsage,
     type SessionTurnEndStatus,
 } from '@slopus/happy-wire';
+import { stripHappySystemBlocks } from '@/codex/codexPrompt';
 
 export type ClaudeSessionProtocolState = {
     currentTurnId: string | null;
@@ -631,7 +632,9 @@ function mapClaudeLogMessageToSessionEnvelopesInternal(
                 envelopes.push(createEnvelope('agent', { t: 'text', text: message.message.content }, { turn: turnId, subagent, claudeUuid }));
             } else {
                 closeTurn(state, 'completed', envelopes);
-                envelopes.push(createEnvelope('user', { t: 'text', text: message.message.content }, { claudeUuid }));
+                // Strip happy-system blocks (change_title instruction) from user messages
+                const visibleText = stripHappySystemBlocks(message.message.content);
+                envelopes.push(createEnvelope('user', { t: 'text', text: visibleText }, { claudeUuid }));
             }
 
             return {
@@ -655,7 +658,11 @@ function mapClaudeLogMessageToSessionEnvelopesInternal(
             closeTurn(state, 'completed', envelopes);
             for (const block of blocks) {
                 if (block.type === 'text' && typeof block.text === 'string' && block.text.trim().length > 0) {
-                    envelopes.push(createEnvelope('user', { t: 'text', text: block.text }, { claudeUuid }));
+                    // Strip happy-system blocks (change_title instruction) from user messages
+                    const visibleText = stripHappySystemBlocks(block.text);
+                    if (visibleText.trim().length > 0) {
+                        envelopes.push(createEnvelope('user', { t: 'text', text: visibleText }, { claudeUuid }));
+                    }
                 }
             }
 

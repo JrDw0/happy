@@ -13,7 +13,7 @@ import { hashObject } from '@/utils/deterministicJson';
 import { parseSpecialCommand } from '@/parsers/specialCommands';
 import { getEnvironmentInfo } from '@/ui/doctor';
 import { configuration } from '@/configuration';
-import { notifyDaemonSessionStarted } from '@/daemon/controlClient';
+import { notifyDaemonSessionStarted, notifyDaemonSessionEnded } from '@/daemon/controlClient';
 import { initialMachineMetadata } from '@/daemon/run';
 import { startHappyServer } from '@/claude/utils/startHappyServer';
 import { startHookServer } from '@/claude/utils/startHookServer';
@@ -32,6 +32,7 @@ import {
     type ClaudeGoalStatusTranscriptEvent,
 } from '@/claude/claudeGoalStatus';
 import { Session } from './session';
+import { stripHappySystemBlocks } from '@/codex/codexPrompt';
 import { applySandboxPermissionPolicy, resolveInitialClaudePermissionMode, resolveRemoteClaudePermissionMode } from './utils/permissionMode';
 import { decodeBase64, encodeBase64 } from '@/api/encryption';
 import type { Session as ApiSession } from '@/api/types';
@@ -389,10 +390,13 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     };
     const consumeAppPrompt = (text: string): boolean => {
         const cutoff = Date.now() - recentAppPromptsMaxAgeMs;
+        // Strip happy-system blocks (e.g., change_title instruction) for matching
+        // since we append these instructions to the message before sending to Claude
+        const normalizedText = stripHappySystemBlocks(text);
         for (let i = 0; i < recentAppPrompts.length; i++) {
             const entry = recentAppPrompts[i];
             if (entry.addedAt < cutoff) continue;
-            if (entry.text === text) {
+            if (entry.text === normalizedText) {
                 recentAppPrompts.splice(i, 1);
                 return true;
             }
@@ -874,7 +878,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     //
     // Crashes (uncaughtException / unhandledRejection) keep archiving
     // because the session is genuinely toast at that point.
-    const cleanup = async (opts: { archive?: boolean } = { archive: true }) => {
+    const cleanup = async (opts: { archive?: boolean; notifyEnded?: boolean; endedReason?: string } = { archive: true }) => {
         logger.debug(`[START] Received termination signal, cleaning up (archive=${opts.archive ?? true})...`);
 
         try {
@@ -892,6 +896,18 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
                         archivedBy: 'cli',
                         archiveReason: 'User terminated'
                     }));
+                }
+
+                // Tell the daemon this was an intentional exit so it won't
+                // auto-resume the session after a reboot. SIGTERM never sets
+                // this — OS shutdown delivers SIGTERM and those sessions must
+                // stay auto-resume candidates.
+                if (opts.notifyEnded) {
+                    try {
+                        await notifyDaemonSessionEnded(session.sessionId, opts.endedReason ?? 'user-terminated');
+                    } catch (err) {
+                        logger.debug('[START] notifyDaemonSessionEnded during cleanup failed:', err);
+                    }
                 }
 
                 // Cleanup session resources (intervals, callbacks)
@@ -938,25 +954,25 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     // Handle termination signals — Ctrl-C / SIGTERM are user-initiated
     // exits, treat as "I'll come back to this session later" rather than
     // "archive forever".
-    process.on('SIGTERM', () => { void cleanup({ archive: false }); });
-    process.on('SIGINT', () => { void cleanup({ archive: false }); });
+    process.on('SIGTERM', () => { void cleanup({ archive: false, notifyEnded: false }); });
+    process.on('SIGINT', () => { void cleanup({ archive: false, notifyEnded: true, endedReason: 'ctrl-c' }); });
 
     // Crashes archive on the way out so the session shows up correctly
     // in the app rather than masquerading as live.
     process.on('uncaughtException', (error) => {
         logger.debug('[START] Uncaught exception:', error);
-        void cleanup({ archive: true });
+        void cleanup({ archive: true, notifyEnded: true, endedReason: 'crash' });
     });
 
     process.on('unhandledRejection', (reason) => {
         logger.debug('[START] Unhandled rejection:', reason);
-        void cleanup({ archive: true });
+        void cleanup({ archive: true, notifyEnded: true, endedReason: 'crash' });
     });
 
     // Browser-side "Archive" button routes through this RPC and DOES
     // want the metadata stamped — it's the user explicitly choosing to
     // retire the session, not just disconnecting.
-    registerKillSessionHandler(session.rpcHandlerManager, () => cleanup({ archive: true }));
+    registerKillSessionHandler(session.rpcHandlerManager, () => cleanup({ archive: true, notifyEnded: true, endedReason: 'kill-rpc' }));
 
     // Create claude loop
     const exitCode = await loop({
@@ -997,6 +1013,13 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     // Cleanup session resources (intervals, callbacks) - prevents memory leak
     // Note: currentSession is set by onSessionReady callback during loop()
     (currentSession as Session | null)?.cleanup();
+
+    // Normal loop completion is a deliberate exit — don't auto-resume it later
+    try {
+        await notifyDaemonSessionEnded(session.sessionId, 'completed');
+    } catch (err) {
+        logger.debug('notifyDaemonSessionEnded after loop failed:', err);
+    }
 
     // Send session death message
     session.sendSessionDeath();

@@ -10,6 +10,29 @@ import { PushableAsyncIterable } from "@/utils/PushableAsyncIterable";
 import { getProjectPath } from "./utils/path";
 import { awaitFileExist } from "@/modules/watcher/awaitFileExist";
 import { systemPrompt } from "./utils/systemPrompt";
+import { trimIdent } from "@/utils/trimIdent";
+
+/**
+ * Happy system block markers - used to wrap injected instructions
+ * so they can be filtered out when displaying messages in the app.
+ * Matches the pattern used by Codex in codexPrompt.ts
+ */
+const HAPPY_SYSTEM_BLOCK_OPEN = '<happy-system>';
+const HAPPY_SYSTEM_BLOCK_CLOSE = '</happy-system>';
+
+function wrapHappySystem(text: string): string {
+    return `${HAPPY_SYSTEM_BLOCK_OPEN}\n${text}\n${HAPPY_SYSTEM_BLOCK_CLOSE}`;
+}
+
+/**
+ * Instruction for Claude to call the change_title MCP tool.
+ * Appended to the first user message to ensure Claude sets a meaningful chat title.
+ * Uses Claude's MCP tool naming format: mcp__happy__change_title
+ * Wrapped in <happy-system> tags so it can be filtered in the app UI.
+ */
+const CLAUDE_CHANGE_TITLE_INSTRUCTION = wrapHappySystem(trimIdent(
+    `Based on this message, call the tool "mcp__happy__change_title" to set a chat session title that represents the current task. If the chat topic changes significantly, call this tool again to update the title.`
+));
 import { PermissionResult } from "./sdk/types";
 import type { JsRuntime } from "./runClaude";
 import { fromRateLimitEvent, windowsFromGetUsage, type UnboundRateLimit, type UsageLimitsPatch, type RateLimitEventInfo } from "./utils/usageLimits";
@@ -153,14 +176,16 @@ export async function claudeRemote(opts: {
         }
     };
 
-    // Push initial message
+    // Push initial message with change_title instruction appended
+    // This ensures Claude sets a meaningful chat title for the session
     let messages = new PushableAsyncIterable<SDKUserMessage>();
+    const initialContentWithInstruction = appendChangeTitleInstruction(initial.message);
     messages.push({
         type: 'user',
         parent_tool_use_id: null,
         message: {
             role: 'user',
-            content: initial.message,
+            content: initialContentWithInstruction,
         },
     });
 
@@ -381,4 +406,22 @@ export async function claudeRemote(opts: {
     } finally {
         updateThinking(false);
     }
+}
+
+/**
+ * Append the change_title instruction to user message content.
+ * Handles both string content and content block arrays.
+ */
+function appendChangeTitleInstruction(content: MessageParam['content']): MessageParam['content'] {
+    if (typeof content === 'string') {
+        return content + '\n\n' + CLAUDE_CHANGE_TITLE_INSTRUCTION;
+    }
+    // Content is an array of blocks - append instruction as a text block
+    if (Array.isArray(content)) {
+        return [
+            ...content,
+            { type: 'text' as const, text: '\n\n' + CLAUDE_CHANGE_TITLE_INSTRUCTION }
+        ];
+    }
+    return content;
 }
