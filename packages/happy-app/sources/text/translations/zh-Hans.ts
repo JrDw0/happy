@@ -310,6 +310,12 @@ export const zhHans: TranslationStructure = {
         viewAll: '查看所有会话',
     },
 
+    history: {
+        title: '历史',
+        empty: '暂无会话',
+        happySessions: 'Happy 会话',
+    },
+
     session: {
         inputPlaceholder: '输入消息...',
         rename: '重命名会话',

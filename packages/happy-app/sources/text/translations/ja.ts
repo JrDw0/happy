@@ -310,6 +310,12 @@ export const ja: TranslationStructure = {
         viewAll: 'すべてのセッションを表示',
     },
 
+    history: {
+        title: '履歴',
+        empty: 'まだセッションはありません',
+        happySessions: 'Happy セッション',
+    },
+
     session: {
         inputPlaceholder: 'メッセージを入力...',
         rename: 'セッション名を変更', renameTitle: 'セッション名を変更', renameMessage: 'このセッションのタイトルを入力してください。', renamePlaceholder: 'セッションタイトル', renameFailed: 'セッション名の変更に失敗しました',

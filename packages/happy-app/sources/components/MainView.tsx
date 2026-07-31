@@ -302,6 +302,15 @@ const HeaderRight = React.memo(({
                     </MobileGlassSurface>
                     <MobileGlassSurface nativeEffect interactive style={styles.headerActionGlass}>
                         <Pressable
+                            onPress={() => router.push('/history')}
+                            style={styles.headerActionButton}
+                            hitSlop={8}
+                        >
+                            <Ionicons name="time-outline" size={21} color={theme.colors.header.tint} />
+                        </Pressable>
+                    </MobileGlassSurface>
+                    <MobileGlassSurface nativeEffect interactive style={styles.headerActionGlass}>
+                        <Pressable
                             onPress={() => router.push('/settings')}
                             style={styles.headerActionButton}
                             hitSlop={8}
@@ -313,13 +322,22 @@ const HeaderRight = React.memo(({
             );
         }
         return (
-            <Pressable
-                onPress={() => router.navigate('/new')}
-                hitSlop={15}
-                style={styles.headerButton}
-            >
-                <Ionicons name="add-outline" size={28} color={theme.colors.header.tint} />
-            </Pressable>
+            <View style={styles.headerActions}>
+                <Pressable
+                    onPress={() => router.push('/history')}
+                    hitSlop={15}
+                    style={styles.headerButton}
+                >
+                    <Ionicons name="time-outline" size={26} color={theme.colors.header.tint} />
+                </Pressable>
+                <Pressable
+                    onPress={() => router.navigate('/new')}
+                    hitSlop={15}
+                    style={styles.headerButton}
+                >
+                    <Ionicons name="add-outline" size={28} color={theme.colors.header.tint} />
+                </Pressable>
+            </View>
         );
     }
 

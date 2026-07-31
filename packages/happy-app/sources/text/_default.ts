@@ -328,6 +328,14 @@ export const en = {
         viewAll: 'View all sessions',
     },
 
+    history: {
+        // Global history page: aggregates Happy sessions + on-disk provider
+        // sessions across all online machines.
+        title: 'History',
+        empty: 'No sessions yet',
+        happySessions: 'Happy sessions',
+    },
+
     session: {
         inputPlaceholder: 'Type a message ...',
         rename: 'Rename session',

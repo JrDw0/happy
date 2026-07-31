@@ -307,6 +307,12 @@ export const it: TranslationStructure = {
         viewAll: 'Visualizza tutte le sessioni',
     },
 
+    history: {
+        title: 'Cronologia',
+        empty: 'Nessuna sessione ancora',
+        happySessions: 'Sessioni Happy',
+    },
+
     session: {
         inputPlaceholder: 'Scrivi un messaggio ...',
         rename: 'Rinomina sessione', renameTitle: 'Rinomina sessione', renameMessage: 'Scegli un titolo per questa sessione.', renamePlaceholder: 'Titolo sessione', renameFailed: 'Impossibile rinominare la sessione',

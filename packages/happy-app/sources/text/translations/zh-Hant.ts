@@ -309,6 +309,12 @@ export const zhHant: TranslationStructure = {
         viewAll: '查看所有工作階段',
     },
 
+    history: {
+        title: '歷史',
+        empty: '尚無工作階段',
+        happySessions: 'Happy 工作階段',
+    },
+
     session: {
         inputPlaceholder: '輸入訊息...',
         rename: '重新命名工作階段', renameTitle: '重新命名工作階段', renameMessage: '為此工作階段設定標題。', renamePlaceholder: '工作階段標題', renameFailed: '重新命名工作階段失敗',

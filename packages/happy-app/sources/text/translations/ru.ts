@@ -295,6 +295,12 @@ export const ru: TranslationStructure = {
         viewAll: 'Посмотреть все сессии',
     },
 
+    history: {
+        title: 'История',
+        empty: 'Сессий пока нет',
+        happySessions: 'Сессии Happy',
+    },
+
     server: {
         // Used by Server Configuration screen (app/(app)/server.tsx)
         serverConfiguration: 'Настройка сервера',

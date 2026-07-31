@@ -323,6 +323,12 @@ export const en: TranslationStructure = {
         viewAll: 'View all sessions',
     },
 
+    history: {
+        title: 'History',
+        empty: 'No sessions yet',
+        happySessions: 'Happy sessions',
+    },
+
     session: {
         inputPlaceholder: 'Type a message ...',
         rename: 'Rename session', renameTitle: 'Rename session', renameMessage: 'Choose a title for this session.', renamePlaceholder: 'Session title', renameFailed: 'Failed to rename session',

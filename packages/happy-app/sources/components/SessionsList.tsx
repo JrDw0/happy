@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Pressable, FlatList, NativeScrollEvent, NativeSyntheticEvent, Platform } from 'react-native';
 import { Text } from '@/components/StyledText';
-import { usePathname } from 'expo-router';
+import { usePathname, useRouter } from 'expo-router';
 import { SessionListViewItem, SessionRowData } from '@/sync/storage';
 import { Ionicons } from '@expo/vector-icons';
 import { type SessionState, formatLastSeen, vibingMessages } from '@/utils/sessionUtils';
@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useVisibleSessionListViewData } from '@/hooks/useVisibleSessionListViewData';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from './StatusDot';
-import { StyleSheet } from 'react-native-unistyles';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useIsTablet } from '@/utils/responsive';
 import { requestReview } from '@/utils/requestReview';
 import { UpdateBanner } from './UpdateBanner';
@@ -202,6 +202,20 @@ const stylesheet = StyleSheet.create((theme) => ({
         paddingHorizontal: 12,
         ...Typography.default('semiBold'),
     },
+    viewAllRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        paddingVertical: 16,
+        marginHorizontal: 16,
+        marginBottom: 12,
+    },
+    viewAllText: {
+        fontSize: 14,
+        color: theme.colors.button.primary.background,
+        ...Typography.default('semiBold'),
+    },
 }));
 
 export function SessionsList({
@@ -220,6 +234,8 @@ export function SessionsList({
     const sourceData = useVisibleSessionListViewData();
     const pathname = usePathname();
     const isTablet = useIsTablet();
+    const router = useRouter();
+    const { theme } = useUnistyles();
     const [hideInactiveSessions, setHideInactiveSessions] = useSettingMutable('hideInactiveSessions');
     const toggleArchived = React.useCallback(() => {
         setHideInactiveSessions(!hideInactiveSessions);
@@ -293,6 +309,30 @@ export function SessionsList({
         return result;
     }, [searchQuery, sourceData]);
 
+    // Cap the number of rendered session rows so very long histories don't
+    // mount hundreds of cells on first paint. Older sessions are reachable via
+    // the global History page. Skipped while searching — the user is actively
+    // looking for something and truncation would hide matches.
+    const MAX_VISIBLE_SESSIONS = 60;
+    const visibleData = React.useMemo<SessionListViewItem[]>(() => {
+        if (!data) return data as never;
+        const normalizedQuery = searchQuery.trim();
+        if (normalizedQuery) return data;
+        let sessionCount = 0;
+        const result: SessionListViewItem[] = [];
+        for (const item of data) {
+            if (item.type === 'session') {
+                if (sessionCount >= MAX_VISIBLE_SESSIONS) {
+                    result.push({ type: 'view-all-history' });
+                    return result;
+                }
+                sessionCount++;
+            }
+            result.push(item);
+        }
+        return result;
+    }, [data, searchQuery]);
+
     // Early return if no data yet
     if (!data) {
         return (
@@ -307,6 +347,7 @@ export function SessionsList({
             case 'archive-toggle': return 'archive-toggle';
             case 'project-group': return `project-group-${item.machine.id}-${item.displayPath}-${index}`;
             case 'session': return `session-${item.session.id}`;
+            case 'view-all-history': return 'view-all-history';
         }
     }, []);
 
@@ -332,6 +373,20 @@ export function SessionsList({
                     </Pressable>
                 );
 
+            case 'view-all-history':
+                return (
+                    <Pressable
+                        style={styles.viewAllRow}
+                        onPress={() => router.push('/history')}
+                    >
+                        <Ionicons name="time-outline" size={18} color={theme.colors.button.primary.background} />
+                        <Text style={styles.viewAllText}>
+                            {t('sessionHistory.viewAll')}
+                        </Text>
+                        <Ionicons name="chevron-forward" size={16} color={theme.colors.textSecondary} />
+                    </Pressable>
+                );
+
             case 'active-sessions':
                 return (
                     <ActiveSessionsGroupCompact
@@ -354,11 +409,11 @@ export function SessionsList({
 
             case 'session':
                 // Determine card styling based on position within date group
-                const prevItem = index > 0 ? data[index - 1] : null;
-                const nextItem = index < data.length - 1 ? data[index + 1] : null;
+                const prevItem = index > 0 ? visibleData[index - 1] : null;
+                const nextItem = index < visibleData.length - 1 ? visibleData[index + 1] : null;
 
                 const isFirst = prevItem?.type === 'header';
-                const isLast = nextItem?.type === 'header' || nextItem == null || nextItem?.type === 'active-sessions' || nextItem?.type === 'archive-toggle';
+                const isLast = nextItem?.type === 'header' || nextItem == null || nextItem?.type === 'active-sessions' || nextItem?.type === 'archive-toggle' || nextItem?.type === 'view-all-history';
                 const isSingle = isFirst && isLast;
                 const selected = item.session.id === selectedSessionId;
 
@@ -372,7 +427,7 @@ export function SessionsList({
                     />
                 );
         }
-    }, [selectedSessionId, data, toggleArchived]);
+    }, [selectedSessionId, visibleData, toggleArchived, router, theme]);
 
 
     // Remove this section as we'll use FlatList for all items now
@@ -390,7 +445,7 @@ export function SessionsList({
         <View style={styles.container}>
             <View style={styles.contentContainer}>
                 <FlatList
-                    data={data}
+                    data={visibleData}
                     renderItem={renderItem}
                     keyExtractor={keyExtractor}
                     extraData={selectedSessionId}

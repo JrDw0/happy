@@ -309,6 +309,12 @@ export const ca: TranslationStructure = {
         viewAll: 'Veure totes les sessions',
     },
 
+    history: {
+        title: 'Historial',
+        empty: 'Encara no hi ha sessions',
+        happySessions: 'Sessions de Happy',
+    },
+
     session: {
         inputPlaceholder: 'Escriu un missatge...',
         rename: 'Rename session', renameTitle: 'Rename session', renameMessage: 'Choose a title for this session.', renamePlaceholder: 'Session title', renameFailed: 'Failed to rename session',

@@ -326,6 +326,12 @@ export const pl: TranslationStructure = {
         viewAll: 'Zobacz wszystkie sesje',
     },
 
+    history: {
+        title: 'Historia',
+        empty: 'Brak sesji',
+        happySessions: 'Sesje Happy',
+    },
+
     session: {
         inputPlaceholder: 'Wpisz wiadomość...',
         rename: 'Zmień nazwę sesji', renameTitle: 'Zmień nazwę sesji', renameMessage: 'Wybierz tytuł tej sesji.', renamePlaceholder: 'Tytuł sesji', renameFailed: 'Nie udało się zmienić nazwy sesji',

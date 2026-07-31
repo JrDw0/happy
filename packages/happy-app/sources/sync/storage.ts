@@ -158,7 +158,8 @@ export type SessionListViewItem =
     | { type: 'active-sessions'; sessions: SessionRowData[] }
     | { type: 'archive-toggle'; hidden: boolean }
     | { type: 'project-group'; displayPath: string; machine: Machine }
-    | { type: 'session'; session: SessionRowData };
+    | { type: 'session'; session: SessionRowData }
+    | { type: 'view-all-history' };
 
 // Legacy type for backward compatibility - to be removed
 export type SessionListItem = string | Session;
