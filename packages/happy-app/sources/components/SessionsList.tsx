@@ -234,12 +234,17 @@ export function SessionsList({
         return pathname.split('/')[2];
     }, [isTablet, pathname]);
 
-    // Request review
+    // Request a review at most once per mount, after the first non-empty
+    // render. We use a ref flag rather than depending on `sourceData` directly
+    // so a re-render with a fresh reference can't re-trigger the prompt.
+    const reviewRequestedRef = React.useRef(false);
     React.useEffect(() => {
+        if (reviewRequestedRef.current) return;
         if (sourceData && sourceData.length > 0) {
+            reviewRequestedRef.current = true;
             requestReview();
         }
-    }, [sourceData && sourceData.length > 0]);
+    }, [sourceData]);
 
     const data = React.useMemo(() => {
         const normalizedQuery = searchQuery.trim().toLocaleLowerCase();
