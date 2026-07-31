@@ -30,6 +30,7 @@
     "android:dev": "cross-env APP_ENV=development expo run:android",
     "android:preview": "cross-env APP_ENV=preview expo run:android",
     "android:production": "cross-env APP_ENV=production expo run:android --variant release",
+    "android:build:adb": "cd android && ./gradlew assembleRelease --console=plain -PreactNativeArchitectures=arm64-v8a && adb install -r app/build/outputs/apk/release/app-release.apk && cd ..",
     "start:dev": "cross-env APP_ENV=development expo start",
     "start:preview": "cross-env APP_ENV=preview expo start",
     "start:production": "cross-env APP_ENV=production expo start",
