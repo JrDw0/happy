@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { View, Text, TextInput, FlatList, ActivityIndicator, Pressable, Platform } from 'react-native';
+import { View, Text, FlatList, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, Stack, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Item } from '@/components/Item';
@@ -9,56 +9,17 @@ import type { Session } from '@/sync/storageTypes';
 import {
     machineListProviderSessions,
     type ProviderSessionMeta,
-    type ProviderSessionProvider,
     type ProviderSessionSortBy,
 } from '@/sync/ops';
 import { t } from '@/text';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
 import { ProviderIcon } from '@/components/ProviderIcon';
+import { ProviderSessionControls, datePresetToFrom, type ProviderFilter, type DatePreset } from '@/components/ProviderSessionControls';
 import { formatPathRelativeToHome, formatLastSeen } from '@/utils/sessionUtils';
 import { isMachineOnline } from '@/utils/machineUtils';
 import { useUnistyles, StyleSheet } from 'react-native-unistyles';
 
 const PAGE_SIZE = 100;
-
-type ProviderFilter = 'all' | ProviderSessionProvider;
-
-const PROVIDER_FILTERS: { key: ProviderFilter; label: string }[] = [
-    { key: 'all', label: '' /* resolved via t() at render time */ },
-    { key: 'claude', label: 'Claude' },
-    { key: 'codex', label: 'Codex' },
-    { key: 'opencode', label: 'OpenCode' },
-];
-
-const SORT_OPTIONS: ProviderSessionSortBy[] = ['lastActiveAt', 'createdAt', 'projectDir'];
-
-type DatePreset = 'all' | 'today' | '7d' | '30d' | '90d';
-
-const DATE_PRESETS: { key: DatePreset; days?: number }[] = [
-    { key: 'all' },
-    { key: 'today' },
-    { key: '7d', days: 7 },
-    { key: '30d', days: 30 },
-    { key: '90d', days: 90 },
-];
-
-function sortLabel(sortBy: ProviderSessionSortBy): string {
-    switch (sortBy) {
-        case 'lastActiveAt': return t('providerSessions.sortRecent');
-        case 'createdAt': return t('providerSessions.sortCreated');
-        case 'projectDir': return t('providerSessions.sortProject');
-    }
-}
-
-function datePresetLabel(preset: DatePreset): string {
-    switch (preset) {
-        case 'all': return t('providerSessions.dateAll');
-        case 'today': return t('providerSessions.dateToday');
-        case '7d': return t('providerSessions.date7Days');
-        case '30d': return t('providerSessions.date30Days');
-        case '90d': return t('providerSessions.date90Days');
-    }
-}
 
 // FlatList rows: plain session entries, plus project group headers when sorting by project
 type ListRow =
@@ -66,42 +27,6 @@ type ListRow =
     | { type: 'session'; key: string; item: ProviderSessionMeta };
 
 const styles = StyleSheet.create((theme) => ({
-    searchContainer: {
-        paddingHorizontal: 16,
-        paddingTop: 12,
-        paddingBottom: 8,
-    },
-    searchInput: {
-        borderRadius: 8,
-        backgroundColor: Platform.select({
-            web: theme.colors.input?.background ?? theme.colors.groupped.background,
-            default: theme.colors.glass.backgroundSubtle,
-        }),
-        borderWidth: 1,
-        borderColor: theme.colors.divider,
-        paddingHorizontal: 12,
-        paddingVertical: Platform.select({ web: 10, ios: 10, default: 8 }) as any,
-        fontSize: 15,
-        color: theme.colors.text,
-    },
-    chipsRow: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: 8,
-        paddingHorizontal: 16,
-        paddingBottom: 8,
-    },
-    chip: {
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 16,
-        borderWidth: 1,
-        borderColor: theme.colors.divider,
-    },
-    chipSelected: {
-        backgroundColor: theme.colors.button.primary.background,
-        borderColor: theme.colors.button.primary.background,
-    },
     centerState: {
         flex: 1,
         justifyContent: 'center',
@@ -181,17 +106,7 @@ export default function MachineProviderSessionsScreen() {
             setIsLoading(true);
         }
         // Translate the date preset into a lower bound computed on the client clock
-        let dateFrom: number | undefined;
-        const preset = DATE_PRESETS.find(p => p.key === datePreset);
-        if (preset && preset.key !== 'all') {
-            if (preset.key === 'today') {
-                const startOfDay = new Date();
-                startOfDay.setHours(0, 0, 0, 0);
-                dateFrom = startOfDay.getTime();
-            } else if (preset.days) {
-                dateFrom = Date.now() - preset.days * 24 * 60 * 60 * 1000;
-            }
-        }
+        const dateFrom = datePresetToFrom(datePreset);
         const result = await machineListProviderSessions(machineId, {
             providers: providerFilter === 'all' ? undefined : [providerFilter],
             query: debouncedQuery.trim() || undefined,
@@ -364,76 +279,18 @@ export default function MachineProviderSessionsScreen() {
                 </View>
             ) : (
                 <View style={{ flex: 1 }}>
-                    <View style={styles.searchContainer}>
-                        <TextInput
-                            style={styles.searchInput}
-                            value={query}
-                            onChangeText={setQuery}
-                            placeholder={t('providerSessions.searchPlaceholder')}
-                            placeholderTextColor={theme.colors.textSecondary}
-                            autoCapitalize="none"
-                            autoCorrect={false}
-                            clearButtonMode="while-editing"
-                        />
-                    </View>
-                    <View style={styles.chipsRow}>
-                        {PROVIDER_FILTERS.map(filter => {
-                            const selected = providerFilter === filter.key;
-                            const label = filter.key === 'all' ? t('providerSessions.filterAll') : filter.label;
-                            return (
-                                <Pressable
-                                    key={filter.key}
-                                    onPress={() => setProviderFilter(filter.key)}
-                                    style={[styles.chip, selected && styles.chipSelected]}
-                                >
-                                    <Text style={[Typography.default(selected ? 'semiBold' : undefined), {
-                                        fontSize: 13,
-                                        color: selected ? theme.colors.button.primary.tint : theme.colors.text,
-                                    }]}>
-                                        {label}
-                                    </Text>
-                                </Pressable>
-                            );
-                        })}
-                    </View>
-                    <View style={styles.chipsRow}>
-                        {SORT_OPTIONS.map(option => {
-                            const selected = sortBy === option;
-                            return (
-                                <Pressable
-                                    key={option}
-                                    onPress={() => setSortBy(option)}
-                                    style={[styles.chip, selected && styles.chipSelected]}
-                                >
-                                    <Text style={[Typography.default(selected ? 'semiBold' : undefined), {
-                                        fontSize: 13,
-                                        color: selected ? theme.colors.button.primary.tint : theme.colors.text,
-                                    }]}>
-                                        {sortLabel(option)}
-                                    </Text>
-                                </Pressable>
-                            );
-                        })}
-                    </View>
-                    <View style={[styles.chipsRow, { paddingBottom: 12 }]}>
-                        {DATE_PRESETS.map(preset => {
-                            const selected = datePreset === preset.key;
-                            return (
-                                <Pressable
-                                    key={preset.key}
-                                    onPress={() => setDatePreset(preset.key)}
-                                    style={[styles.chip, selected && styles.chipSelected]}
-                                >
-                                    <Text style={[Typography.default(selected ? 'semiBold' : undefined), {
-                                        fontSize: 13,
-                                        color: selected ? theme.colors.button.primary.tint : theme.colors.text,
-                                    }]}>
-                                        {datePresetLabel(preset.key)}
-                                    </Text>
-                                </Pressable>
-                            );
-                        })}
-                    </View>
+                    <ProviderSessionControls
+                        query={query}
+                        providerFilter={providerFilter}
+                        sortBy={sortBy}
+                        datePreset={datePreset}
+                        onChange={(next) => {
+                            if (next.query !== undefined) setQuery(next.query);
+                            if (next.providerFilter !== undefined) setProviderFilter(next.providerFilter);
+                            if (next.sortBy !== undefined) setSortBy(next.sortBy);
+                            if (next.datePreset !== undefined) setDatePreset(next.datePreset);
+                        }}
+                    />
                     <FlatList
                         data={rows}
                         keyExtractor={(row) => row.key}
