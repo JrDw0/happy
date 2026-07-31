@@ -439,9 +439,17 @@ const SessionItem = React.memo(({ session, selected, isFirst, isLast, isSingle }
         ? { ...baseStatus, color: '#007AFF', dotColor: '#007AFF', isPulsing: false, isConnected: baseStatus.isConnected }
         : baseStatus;
 
+    // Pick a "vibing" message deterministically from the session id so the
+    // text doesn't reshuffle every time the state flips between thinking and
+    // waiting. Random selection here caused the row subtitle to flicker.
     const vibingMessage = React.useMemo(() => {
-        return vibingMessages[Math.floor(Math.random() * vibingMessages.length)].toLowerCase() + '…';
-    }, [session.state]);
+        let hash = 0;
+        for (let i = 0; i < session.id.length; i++) {
+            hash = (hash * 31 + session.id.charCodeAt(i)) | 0;
+        }
+        const index = Math.abs(hash) % vibingMessages.length;
+        return vibingMessages[index].toLowerCase() + '…';
+    }, [session.id]);
 
     const statusText = session.hasUnread
         ? t('status.unread')
