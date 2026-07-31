@@ -323,9 +323,7 @@ function ContextUsageCircle(props: {
                     strokeLinecap="round"
                     strokeDasharray={`${circumference} ${circumference}`}
                     strokeDashoffset={dashOffset}
-                    rotation="-90"
-                    originX={size / 2}
-                    originY={size / 2}
+                    transform={`rotate(-90 ${size / 2} ${size / 2})`}
                 />
             </Svg>
         </View>
