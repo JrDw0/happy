@@ -58,7 +58,7 @@ export interface StartOptions {
     jsRuntime?: JsRuntime
 }
 
-const DEFAULT_CLAUDE_PERMISSION_MODE: PermissionMode = 'yolo';
+const DEFAULT_CLAUDE_PERMISSION_MODE: PermissionMode = 'default';
 
 /**
  * Cap on how many historical transcript messages a fork backfill replays
