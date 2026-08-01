@@ -38,6 +38,7 @@ export const es: TranslationStructure = {
         error: 'Error',
         success: 'Éxito',
         ok: 'OK',
+        done: 'Listo',
         continue: 'Continuar',
         back: 'Atrás',
         create: 'Crear',
@@ -918,6 +919,7 @@ export const es: TranslationStructure = {
         missingDirectoryMessage: 'Esta sesión no tiene un directorio registrado. Introduce el directorio donde reanudarla.',
         resumeFailed: 'No se pudo reanudar la sesión',
         sortRecent: 'Recientes', sortCreated: 'Creadas', sortProject: 'Proyecto', dateAll: 'Todas', dateToday: 'Hoy', date7Days: '7 días', date30Days: '30 días', date90Days: '90 días', detailEmpty: 'No hay mensajes en esta sesión', loadEarlier: 'Cargar mensajes anteriores', openInHappy: 'Abrir en Happy',
+        filterTitle: 'Filtrar y ordenar', providerSection: 'Proveedor', sortSection: 'Ordenar por', dateSection: 'Rango de fechas',
     },
 
     message: {

@@ -38,6 +38,7 @@ export const ca: TranslationStructure = {
         error: 'Error',
         success: 'Èxit',
         ok: 'D\'acord',
+        done: 'Fet',
         continue: 'Continua',
         back: 'Enrere',
         create: 'Crear',
@@ -924,6 +925,7 @@ L'agent actua com a pont de veu entre l'usuari i els agents de codi. Ha de ser c
         missingDirectoryMessage: 'Aquesta sessió no té cap directori registrat. Introdueix el directori on reprendre-la.',
         resumeFailed: 'No s\'ha pogut reprendre la sessió',
         sortRecent: 'Recents', sortCreated: 'Creats', sortProject: 'Projecte', dateAll: 'Tots', dateToday: 'Avui', date7Days: '7 dies', date30Days: '30 dies', date90Days: '90 dies', detailEmpty: 'No hi ha missatges en aquesta sessió', loadEarlier: 'Carrega missatges anteriors', openInHappy: 'Obre a Happy',
+        filterTitle: 'Filtra i ordena', providerSection: 'Proveïdor', sortSection: 'Ordena per', dateSection: 'Interval de dates',
     },
 
     message: {

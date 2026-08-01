@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { View, Text, FlatList, ActivityIndicator } from 'react-native';
+import { View, Text, FlatList, ActivityIndicator, Pressable, RefreshControl } from 'react-native';
 import { Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Item } from '@/components/Item';
@@ -18,6 +18,9 @@ import { ProviderIcon } from '@/components/ProviderIcon';
 import {
     ProviderSessionControls,
     datePresetToFrom,
+    DEFAULT_PROVIDER_FILTER,
+    DEFAULT_SORT_BY,
+    DEFAULT_DATE_PRESET,
     type ProviderFilter,
     type DatePreset,
     type ProviderSessionControlsState,
@@ -33,6 +36,11 @@ import { useRouter } from 'expo-router';
 // per-machine screen. Keeping this modest bounds the fan-out cost.
 const PER_MACHINE_LIMIT = 50;
 
+// Retry backoff for the provider-session RPC: failures retry forever with an
+// exponentially growing delay (never surface load errors — just keep trying).
+const RETRY_BASE_MS = 1000;
+const RETRY_CAP_MS = 30_000;
+
 // A unified row in the global history list. `happy` rows come from the local
 // store; `provider` rows come from on-disk sessions on remote machines.
 type HistoryRow =
@@ -40,65 +48,23 @@ type HistoryRow =
     | { type: 'provider'; key: string; item: ProviderSessionMeta; machineId: string };
 
 type ListRow =
-    | { type: 'header'; key: string; label: string }
+    | { type: 'header'; key: string; groupKey: string; label: string; count: number; loading: boolean }
     | HistoryRow;
 
-type MachineLoadState = 'loading' | 'loaded' | 'error' | 'unsupported';
+type MachineLoadState = 'loading' | 'loaded';
 
 interface ProviderGroup {
     machineId: string;
     machineLabel: string;
     state: MachineLoadState;
     sessions: ProviderSessionMeta[];
-    errorMessage?: string;
 }
-
-const styles = StyleSheet.create((theme) => ({
-    container: {
-        flex: 1,
-    },
-    centerState: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        paddingHorizontal: 32,
-        paddingVertical: 48,
-    },
-    groupHeader: {
-        paddingHorizontal: 16,
-        paddingTop: 16,
-        paddingBottom: 6,
-    },
-    groupHeaderSubtitle: {
-        fontSize: 11,
-        color: theme.colors.textSecondary,
-        marginTop: 2,
-        ...Typography.default(),
-    },
-    activeBadge: {
-        paddingHorizontal: 8,
-        paddingVertical: 3,
-        borderRadius: 10,
-        backgroundColor: '#34C75922',
-    },
-    machineStateRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-        marginTop: 4,
-    },
-    machineStateText: {
-        fontSize: 12,
-        color: theme.colors.textSecondary,
-        ...Typography.default(),
-    },
-}));
 
 function machineLabel(machine: { id: string; metadata: any }): string {
     return machine.metadata?.displayName || machine.metadata?.host || machine.id;
 }
 
-export default function GlobalHistoryScreen() {
+function GlobalHistoryScreen() {
     const { theme } = useUnistyles();
     const router = useRouter();
     const navigateToSession = useNavigateToSession();
@@ -108,14 +74,23 @@ export default function GlobalHistoryScreen() {
     // Controls state
     const [query, setQuery] = useState('');
     const [debouncedQuery, setDebouncedQuery] = useState('');
-    const [providerFilter, setProviderFilter] = useState<ProviderFilter>('all');
-    const [sortBy, setSortBy] = useState<ProviderSessionSortBy>('lastActiveAt');
-    const [datePreset, setDatePreset] = useState<DatePreset>('all');
+    const [providerFilter, setProviderFilter] = useState<ProviderFilter>(DEFAULT_PROVIDER_FILTER);
+    const [sortBy, setSortBy] = useState<ProviderSessionSortBy>(DEFAULT_SORT_BY);
+    const [datePreset, setDatePreset] = useState<DatePreset>(DEFAULT_DATE_PRESET);
 
     // Provider sessions fanned out across machines. Keyed by machineId.
     const [providerGroups, setProviderGroups] = useState<Record<string, ProviderGroup>>({});
     // Bump on every fan-out so we can discard stale responses.
     const requestSeq = useRef(0);
+    // Manual pull-to-refresh trigger.
+    const [refreshNonce, setRefreshNonce] = useState(0);
+
+    // Collapsed per group ('happy' | machineId). Not persisted — sections
+    // start expanded and searching temporarily forces everything open.
+    const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+    const toggleGroup = useCallback((groupKey: string) => {
+        setCollapsed((prev) => ({ ...prev, [groupKey]: !prev[groupKey] }));
+    }, []);
 
     // Happy sessions that are already tracked, keyed by `provider:sessionId`,
     // so provider rows can badge + jump straight to the existing session.
@@ -146,7 +121,9 @@ export default function GlobalHistoryScreen() {
         return () => clearTimeout(timer);
     }, [query]);
 
-    // Fan out to every supported machine whenever filters change.
+    // Fan out to every supported machine whenever filters change. Each machine
+    // loads independently with retry-and-backoff so one slow machine doesn't
+    // stall the others, and failures retry silently instead of showing errors.
     useEffect(() => {
         if (supportedMachines.length === 0) {
             setProviderGroups({});
@@ -157,7 +134,8 @@ export default function GlobalHistoryScreen() {
         const dateFrom = datePresetToFrom(datePreset);
         const q = debouncedQuery.trim() || undefined;
 
-        // Mark every supported machine as loading up front.
+        // Mark every supported machine as loading up front, keeping the
+        // previously loaded rows visible under the header spinner.
         setProviderGroups((prev) => {
             const next: Record<string, ProviderGroup> = {};
             for (const m of supportedMachines) {
@@ -172,48 +150,49 @@ export default function GlobalHistoryScreen() {
         });
 
         let cancelled = false;
-        (async () => {
-            const results = await Promise.all(
-                supportedMachines.map(async (m) => {
-                    const result = await machineListProviderSessions(m.id, {
-                        providers,
-                        query: q,
-                        sortBy,
-                        dateFrom,
-                        limit: PER_MACHINE_LIMIT,
-                        offset: 0,
-                    });
-                    return { machineId: m.id, machineLabel: machineLabel(m), result };
-                }),
-            );
-            if (cancelled || seq !== requestSeq.current) return;
-            setProviderGroups(() => {
-                const next: Record<string, ProviderGroup> = {};
-                for (const { machineId, machineLabel: label, result } of results) {
-                    if (result.type === 'success') {
-                        next[machineId] = {
-                            machineId,
-                            machineLabel: label,
-                            state: 'loaded',
-                            sessions: result.sessions,
-                        };
-                    } else {
-                        next[machineId] = {
-                            machineId,
-                            machineLabel: label,
-                            state: 'error',
-                            sessions: [],
-                            errorMessage: result.errorMessage,
-                        };
-                    }
+        const isStale = () => cancelled || seq !== requestSeq.current;
+        const timers = new Set<ReturnType<typeof setTimeout>>();
+        const sleep = (ms: number) => new Promise<void>((resolve) => {
+            const timer = setTimeout(() => {
+                timers.delete(timer);
+                resolve();
+            }, ms);
+            timers.add(timer);
+        });
+
+        const loadMachine = async (m: (typeof supportedMachines)[number]) => {
+            let attempt = 0;
+            while (!isStale()) {
+                const result = await machineListProviderSessions(m.id, {
+                    providers,
+                    query: q,
+                    sortBy,
+                    dateFrom,
+                    limit: PER_MACHINE_LIMIT,
+                    offset: 0,
+                });
+                if (isStale()) return;
+                if (result.type === 'success') {
+                    const label = machineLabel(m);
+                    setProviderGroups((prev) => ({
+                        ...prev,
+                        [m.id]: { machineId: m.id, machineLabel: label, state: 'loaded', sessions: result.sessions },
+                    }));
+                    return;
                 }
-                return next;
-            });
-        })();
+                attempt += 1;
+                await sleep(Math.min(RETRY_BASE_MS * 2 ** attempt, RETRY_CAP_MS));
+            }
+        };
+
+        for (const m of supportedMachines) {
+            void loadMachine(m);
+        }
         return () => {
             cancelled = true;
+            for (const timer of timers) clearTimeout(timer);
         };
-    }, [supportedMachines, providerFilter, debouncedQuery, sortBy, datePreset]);
+    }, [supportedMachines, providerFilter, debouncedQuery, sortBy, datePreset, refreshNonce]);
 
     const handleProviderPress = useCallback((machineId: string, item: ProviderSessionMeta) => {
         const activeSessionId = activeHappySessions.get(`${item.provider}:${item.sessionId}`);
@@ -235,14 +214,19 @@ export default function GlobalHistoryScreen() {
         });
     }, [activeHappySessions, navigateToSession, router]);
 
-    // Build the unified, filtered, sorted list of rows.
+    // Build the unified, filtered, sorted list of rows with collapsible groups.
+    // Searching collapses nothing — all groups force-expand so matches surface.
     const rows = useMemo<ListRow[]>(() => {
         const out: ListRow[] = [];
         const q = debouncedQuery.trim().toLocaleLowerCase();
+        const searching = q.length > 0;
         const matchesQuery = (text?: string) => !q || (text?.toLocaleLowerCase().includes(q) ?? false);
+        // Rows that exist regardless of collapse state — collapsing everything
+        // must not look like an empty history.
+        let hasSessionRows = false;
 
         // --- Happy sessions (local, instant) ---
-        const happyRows: Array<{ type: 'happy'; key: string; session: Session; machineId?: string }> = [];
+        const happyRows: HistoryRow[] = [];
         if (allSessions) {
             for (const session of allSessions) {
                 const provider: ProviderSessionProvider | undefined =
@@ -259,41 +243,38 @@ export default function GlobalHistoryScreen() {
                 });
             }
         }
-        // Happy sessions sort by updatedAt (most recent first).
-        happyRows.sort((a, b) => b.session.updatedAt - a.session.updatedAt);
+        happyRows.sort((a, b) => {
+            const sa = (a as Extract<HistoryRow, { type: 'happy' }>).session;
+            const sb = (b as Extract<HistoryRow, { type: 'happy' }>).session;
+            switch (sortBy) {
+                case 'createdAt':
+                    return sb.createdAt - sa.createdAt;
+                case 'projectDir':
+                    return (sa.metadata?.path ?? '').localeCompare(sb.metadata?.path ?? '');
+                case 'lastActiveAt':
+                default:
+                    return sb.updatedAt - sa.updatedAt;
+            }
+        });
         if (happyRows.length > 0) {
-            out.push({ type: 'header', key: 'header:happy', label: t('history.happySessions') });
-            for (const row of happyRows) out.push(row);
+            hasSessionRows = true;
+            out.push({
+                type: 'header',
+                key: 'header:happy',
+                groupKey: 'happy',
+                label: t('history.happySessions'),
+                count: happyRows.length,
+                loading: false,
+            });
+            if (searching || !collapsed['happy']) {
+                for (const row of happyRows) out.push(row);
+            }
         }
 
         // --- Provider sessions grouped by machine ---
         for (const m of supportedMachines) {
             const group = providerGroups[m.id];
             if (!group) continue;
-            // Always show a header per machine so the user sees which machines
-            // were queried, even when a group is loading/empty/error.
-            out.push({
-                type: 'header',
-                key: `header:${m.id}`,
-                label: group.machineLabel,
-            });
-
-            if (group.state === 'loading') {
-                out.push({
-                    type: 'header',
-                    key: `state:${m.id}`,
-                    label: t('common.loading'),
-                });
-                continue;
-            }
-            if (group.state === 'error') {
-                out.push({
-                    type: 'header',
-                    key: `state:${m.id}`,
-                    label: group.errorMessage || t('providerSessions.loadFailed'),
-                });
-                continue;
-            }
 
             let sessions = group.sessions;
             if (providerFilter !== 'all') {
@@ -319,18 +300,36 @@ export default function GlobalHistoryScreen() {
                 }
             });
 
-            for (const item of sessions) {
-                out.push({
-                    type: 'provider',
-                    key: `provider:${m.id}:${item.provider}:${item.sessionId}`,
-                    item,
-                    machineId: m.id,
-                });
+            if (sessions.length > 0) hasSessionRows = true;
+            out.push({
+                type: 'header',
+                key: `header:${m.id}`,
+                groupKey: m.id,
+                label: group.machineLabel,
+                count: sessions.length,
+                loading: group.state === 'loading',
+            });
+            if (searching || !collapsed[m.id]) {
+                for (const item of sessions) {
+                    out.push({
+                        type: 'provider',
+                        key: `provider:${m.id}:${item.provider}:${item.sessionId}`,
+                        item,
+                        machineId: m.id,
+                    });
+                }
             }
         }
 
+        // When there's genuinely nothing anywhere (no matches, no sessions)
+        // and nothing is still loading, strip the bare group headers so
+        // FlatList renders the proper empty state. Collapsed groups keep
+        // their headers — they still have sessions, just hidden.
+        const anyLoading = supportedMachines.some((m) => providerGroups[m.id]?.state === 'loading');
+        if (!hasSessionRows && !anyLoading) return [];
+
         return out;
-    }, [allSessions, supportedMachines, providerGroups, providerFilter, debouncedQuery, sortBy]);
+    }, [allSessions, supportedMachines, providerGroups, providerFilter, debouncedQuery, sortBy, collapsed]);
 
     const controlsOnChange = useCallback((next: Partial<ProviderSessionControlsState>) => {
         if (next.query !== undefined) setQuery(next.query);
@@ -341,12 +340,27 @@ export default function GlobalHistoryScreen() {
 
     const renderRow = useCallback(({ item: row }: { item: ListRow }) => {
         if (row.type === 'header') {
+            const isCollapsed = !debouncedQuery.trim() && collapsed[row.groupKey];
             return (
-                <View style={styles.groupHeader}>
-                    <Text style={[Typography.default('semiBold'), { fontSize: 13, color: theme.colors.textSecondary }]} numberOfLines={1}>
+                <Pressable style={styles.groupHeader} onPress={() => toggleGroup(row.groupKey)}>
+                    <Ionicons
+                        name={isCollapsed ? 'chevron-forward' : 'chevron-down'}
+                        size={13}
+                        color={theme.colors.textSecondary}
+                    />
+                    <Text style={[Typography.default('semiBold'), styles.groupHeaderLabel, { color: theme.colors.textSecondary }]} numberOfLines={1}>
                         {row.label}
                     </Text>
-                </View>
+                    {row.loading ? (
+                        <ActivityIndicator size="small" color={theme.colors.textSecondary} />
+                    ) : (
+                        <View style={[styles.countPill, { backgroundColor: theme.colors.glass.backgroundSubtle }]}>
+                            <Text style={[Typography.default(), styles.countPillText, { color: theme.colors.textSecondary }]}>
+                                {row.count}
+                            </Text>
+                        </View>
+                    )}
+                </Pressable>
             );
         }
         if (row.type === 'happy') {
@@ -391,13 +405,11 @@ export default function GlobalHistoryScreen() {
                 showChevron={false}
             />
         );
-    }, [activeHappySessions, allMachines, theme, navigateToSession, handleProviderPress]);
+    }, [activeHappySessions, allMachines, theme, navigateToSession, handleProviderPress, collapsed, debouncedQuery, toggleGroup]);
 
     const keyExtractor = useCallback((row: ListRow) => row.key, []);
 
-    // Empty state: only when everything has settled and there's nothing.
-    const anyLoading = Object.values(providerGroups).some((g) => g.state === 'loading');
-    const isEmpty = rows.length === 0 && !anyLoading;
+    const anyLoading = supportedMachines.some((m) => providerGroups[m.id]?.state === 'loading');
 
     return (
         <>
@@ -421,7 +433,14 @@ export default function GlobalHistoryScreen() {
                     keyExtractor={keyExtractor}
                     renderItem={renderRow}
                     keyboardShouldPersistTaps="handled"
-                    ListEmptyComponent={isEmpty ? (
+                    refreshControl={
+                        <RefreshControl
+                            refreshing={anyLoading && refreshNonce > 0}
+                            onRefresh={() => setRefreshNonce((n) => n + 1)}
+                            tintColor={theme.colors.textSecondary}
+                        />
+                    }
+                    ListEmptyComponent={!anyLoading ? (
                         <View style={styles.centerState}>
                             <Ionicons name="file-tray-outline" size={36} color={theme.colors.textSecondary} />
                             <Text style={[Typography.default(), { fontSize: 15, color: theme.colors.textSecondary, textAlign: 'center', marginTop: 12 }]}>
@@ -429,13 +448,51 @@ export default function GlobalHistoryScreen() {
                             </Text>
                         </View>
                     ) : null}
-                    ListFooterComponent={anyLoading ? (
-                        <View style={{ paddingVertical: 16, alignItems: 'center' }}>
-                            <ActivityIndicator size="small" color={theme.colors.textSecondary} />
-                        </View>
-                    ) : null}
                 />
             </View>
         </>
     );
 }
+
+export default React.memo(GlobalHistoryScreen);
+
+const styles = StyleSheet.create((theme) => ({
+    container: {
+        flex: 1,
+    },
+    centerState: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: 32,
+        paddingVertical: 48,
+    },
+    groupHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        paddingHorizontal: 16,
+        paddingTop: 14,
+        paddingBottom: 6,
+    },
+    groupHeaderLabel: {
+        flex: 1,
+        fontSize: 13,
+    },
+    countPill: {
+        minWidth: 22,
+        paddingHorizontal: 7,
+        paddingVertical: 2,
+        borderRadius: 9,
+        alignItems: 'center',
+    },
+    countPillText: {
+        fontSize: 11,
+    },
+    activeBadge: {
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 10,
+        backgroundColor: '#34C75922',
+    },
+}));

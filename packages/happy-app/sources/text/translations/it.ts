@@ -37,6 +37,7 @@ export const it: TranslationStructure = {
         error: 'Errore',
         success: 'Successo',
         ok: 'OK',
+        done: 'Fine',
         continue: 'Continua',
         back: 'Indietro',
         create: 'Crea',
@@ -926,6 +927,10 @@ export const it: TranslationStructure = {
         detailEmpty: 'Nessun messaggio in questa sessione',
         loadEarlier: 'Carica messaggi precedenti',
         openInHappy: 'Apri in Happy',
+        filterTitle: 'Filtra e ordina',
+        providerSection: 'Provider',
+        sortSection: 'Ordina per',
+        dateSection: 'Intervallo di date',
     },
 
     message: {

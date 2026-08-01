@@ -49,6 +49,7 @@ export const pl: TranslationStructure = {
         error: 'Błąd',
         success: 'Sukces',
         ok: 'OK',
+        done: 'Gotowe',
         continue: 'Kontynuuj',
         back: 'Wstecz',
         create: 'Utwórz',
@@ -934,6 +935,7 @@ export const pl: TranslationStructure = {
         missingDirectoryMessage: 'Ta sesja nie ma zapisanego katalogu. Podaj katalog, w którym ją wznowić.',
         resumeFailed: 'Nie udało się wznowić sesji',
         sortRecent: 'Najnowsze', sortCreated: 'Utworzone', sortProject: 'Projekt', dateAll: 'Wszystkie', dateToday: 'Dzisiaj', date7Days: '7 dni', date30Days: '30 dni', date90Days: '90 dni', detailEmpty: 'Brak wiadomości w tej sesji', loadEarlier: 'Wczytaj wcześniejsze wiadomości', openInHappy: 'Otwórz w Happy',
+        filterTitle: 'Filtruj i sortuj', providerSection: 'Dostawca', sortSection: 'Sortuj według', dateSection: 'Zakres dat',
     },
 
     message: {

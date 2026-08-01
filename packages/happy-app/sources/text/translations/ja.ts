@@ -40,6 +40,7 @@ export const ja: TranslationStructure = {
         error: 'エラー',
         success: '成功',
         ok: 'OK',
+        done: '完了',
         continue: '続行',
         back: '戻る',
         create: '作成',
@@ -919,6 +920,7 @@ export const ja: TranslationStructure = {
         missingDirectoryMessage: 'このセッションにはディレクトリが記録されていません。再開するディレクトリを入力してください。',
         resumeFailed: 'セッションの再開に失敗しました',
         sortRecent: '最近', sortCreated: '作成日', sortProject: 'プロジェクト', dateAll: 'すべて', dateToday: '今日', date7Days: '7日間', date30Days: '30日間', date90Days: '90日間', detailEmpty: 'このセッションにはメッセージがありません', loadEarlier: '以前のメッセージを読み込む', openInHappy: 'Happyで開く',
+        filterTitle: 'フィルターと並び替え', providerSection: 'プロバイダー', sortSection: '並び替え', dateSection: '期間',
     },
 
     message: {

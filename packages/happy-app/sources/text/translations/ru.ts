@@ -49,6 +49,7 @@ export const ru: TranslationStructure = {
         error: 'Ошибка',
         success: 'Успешно',
         ok: 'ОК',
+        done: 'Готово',
         continue: 'Продолжить',
         back: 'Назад',
         create: 'Создать',
@@ -922,6 +923,7 @@ export const ru: TranslationStructure = {
         missingDirectoryMessage: 'У этой сессии не записан каталог. Введите каталог для возобновления.',
         resumeFailed: 'Не удалось возобновить сессию',
         sortRecent: 'Недавние', sortCreated: 'Созданные', sortProject: 'Проект', dateAll: 'Все', dateToday: 'Сегодня', date7Days: '7 дней', date30Days: '30 дней', date90Days: '90 дней', detailEmpty: 'В этой сессии нет сообщений', loadEarlier: 'Загрузить ранние сообщения', openInHappy: 'Открыть в Happy',
+        filterTitle: 'Фильтр и сортировка', providerSection: 'Провайдер', sortSection: 'Сортировка', dateSection: 'Период',
     },
 
     message: {

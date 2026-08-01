@@ -38,6 +38,7 @@ export const en = {
         error: 'Error',
         success: 'Success',
         ok: 'OK',
+        done: 'Done',
         continue: 'Continue',
         back: 'Back',
         create: 'Create',
@@ -960,6 +961,10 @@ export const en = {
         detailEmpty: 'No messages in this session',
         loadEarlier: 'Load earlier messages',
         openInHappy: 'Open in Happy',
+        filterTitle: 'Filter & Sort',
+        providerSection: 'Provider',
+        sortSection: 'Sort By',
+        dateSection: 'Date Range',
     },
 
     message: {

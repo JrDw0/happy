@@ -40,6 +40,7 @@ export const zhHant: TranslationStructure = {
         error: '錯誤',
         success: '成功',
         ok: '確定',
+        done: '完成',
         continue: '繼續',
         back: '返回',
         create: '建立',
@@ -928,6 +929,10 @@ export const zhHant: TranslationStructure = {
         detailEmpty: '此工作階段沒有訊息',
         loadEarlier: '載入較早的訊息',
         openInHappy: '在 Happy 中開啟',
+        filterTitle: '篩選與排序',
+        providerSection: '提供者',
+        sortSection: '排序方式',
+        dateSection: '時間範圍',
     },
 
     message: {

@@ -40,6 +40,7 @@ export const zhHans: TranslationStructure = {
         error: '错误',
         success: '成功',
         ok: '确定',
+        done: '完成',
         continue: '继续',
         back: '返回',
         create: '创建',
@@ -938,6 +939,10 @@ export const zhHans: TranslationStructure = {
         detailEmpty: '此会话没有消息',
         loadEarlier: '加载更早的消息',
         openInHappy: '在 Happy 中打开',
+        filterTitle: '筛选与排序',
+        providerSection: '提供商',
+        sortSection: '排序方式',
+        dateSection: '时间范围',
     },
 
     message: {
