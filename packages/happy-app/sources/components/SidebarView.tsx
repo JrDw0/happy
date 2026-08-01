@@ -20,12 +20,18 @@ const stylesheet = StyleSheet.create((theme) => ({
         borderWidth: StyleSheet.hairlineWidth,
         borderColor: theme.colors.divider,
     },
-    newSessionButton: {
+    headerRow: {
         flexDirection: 'row',
-        alignItems: 'center',
+        alignItems: 'stretch',
         marginHorizontal: 16,
         marginTop: 8,
         marginBottom: 4,
+        gap: 8,
+    },
+    newSessionButton: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
         paddingVertical: 10,
         paddingHorizontal: 14,
         borderRadius: 10,
@@ -33,6 +39,15 @@ const stylesheet = StyleSheet.create((theme) => ({
         borderColor: theme.colors.divider,
         backgroundColor: theme.colors.surface,
         gap: 8,
+    },
+    historyButton: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 14,
+        borderRadius: 10,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
+        backgroundColor: theme.colors.surface,
     },
     newSessionButtonPressed: {
         backgroundColor: theme.colors.surfacePressed,
@@ -78,21 +93,37 @@ export const SidebarView = React.memo(() => {
         router.navigate('/new');
     }, [router]);
 
+    const handleHistory = React.useCallback(() => {
+        router.push('/history');
+    }, [router]);
+
     return (
         <View style={[styles.container, { paddingTop: safeArea.top + headerHeight }]}>
-            {/* New Session button */}
-            <Pressable
-                onPress={handleNewSession}
-                style={({ pressed }) => [
-                    styles.newSessionButton,
-                    shortcutHintsVisible && styles.shortcutTargetActive,
-                    pressed && styles.newSessionButtonPressed,
-                ]}
-            >
-                <Ionicons name="create-outline" size={16} color={stylesheet.newSessionText.color} />
-                <Text style={styles.newSessionText}>{t('sidebar.newSession')}</Text>
-                <ShortcutHintBadge shortcutKey="N" style={styles.shortcutBadgeInline} />
-            </Pressable>
+            {/* New Session + History buttons */}
+            <View style={styles.headerRow}>
+                <Pressable
+                    onPress={handleNewSession}
+                    style={({ pressed }) => [
+                        styles.newSessionButton,
+                        shortcutHintsVisible && styles.shortcutTargetActive,
+                        pressed && styles.newSessionButtonPressed,
+                    ]}
+                >
+                    <Ionicons name="create-outline" size={16} color={stylesheet.newSessionText.color} />
+                    <Text style={styles.newSessionText}>{t('sidebar.newSession')}</Text>
+                    <ShortcutHintBadge shortcutKey="N" style={styles.shortcutBadgeInline} />
+                </Pressable>
+                <Pressable
+                    onPress={handleHistory}
+                    accessibilityLabel={t('history.title')}
+                    style={({ pressed }) => [
+                        styles.historyButton,
+                        pressed && styles.newSessionButtonPressed,
+                    ]}
+                >
+                    <Ionicons name="time-outline" size={16} color={stylesheet.newSessionText.color} />
+                </Pressable>
+            </View>
 
             {realtimeStatus !== 'disconnected' && (
                 <VoiceAssistantStatusBar variant="sidebar" />
