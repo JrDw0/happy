@@ -1,7 +1,6 @@
 import * as React from 'react';
 import { Animated, View, Text, Platform, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Typography } from '@/constants/Typography';
 import { isRunningOnMac } from '@/utils/platform';
@@ -15,6 +14,11 @@ import {
     MOBILE_GLASS_CONTROL_SIZE,
     MOBILE_GLASS_HEADER_HEIGHT,
 } from './navigation/headerMetrics';
+import {
+    MobileHeaderScrim,
+    MOBILE_STRONG_HEADER_SCRIM_RESTING_OPACITY,
+    MOBILE_STRONG_HEADER_SCRIM_UNDERLAP_OPACITY,
+} from './navigation/MobileHeaderScrim';
 
 interface ChatHeaderViewProps {
     title: string;
@@ -36,6 +40,8 @@ interface ChatHeaderViewProps {
     backdropVisible?: boolean;
 }
 
+// The title belongs to the header scrim, not its own glass capsule. Keep a
+// dense native blur at rest and let it feather past the controls into content.
 export const ChatHeaderView: React.FC<ChatHeaderViewProps> = ({
     title,
     folderName,
@@ -61,23 +67,27 @@ export const ChatHeaderView: React.FC<ChatHeaderViewProps> = ({
     const contentHeight = glassEnabled ? Math.max(headerHeight, MOBILE_GLASS_HEADER_HEIGHT) : headerHeight;
     const projectLabel = projectPath || folderName;
     const showFolderSubtitle = !!projectLabel && projectLabel !== title;
-    const backdropOpacity = React.useRef(new Animated.Value(backdropVisible ? 1 : 0)).current;
-    const [backdropMounted, setBackdropMounted] = React.useState(backdropVisible);
+    const folderNameColor = glassEnabled
+        ? theme.dark ? 'rgba(255, 255, 255, 0.78)' : 'rgba(24, 23, 28, 0.72)'
+        : theme.colors.textSecondary;
+    const backdropOpacity = React.useRef(new Animated.Value(
+        backdropVisible ? MOBILE_STRONG_HEADER_SCRIM_UNDERLAP_OPACITY : MOBILE_STRONG_HEADER_SCRIM_RESTING_OPACITY,
+    )).current;
+    const [backdropMounted, setBackdropMounted] = React.useState(glassEnabled);
 
     React.useEffect(() => {
-        if (backdropVisible) {
-            setBackdropMounted(true);
+        if (!glassEnabled) {
+            setBackdropMounted(false);
+            return;
         }
+
+        setBackdropMounted(true);
         Animated.timing(backdropOpacity, {
-            toValue: backdropVisible ? 1 : 0,
-            duration: 160,
+            toValue: backdropVisible ? MOBILE_STRONG_HEADER_SCRIM_UNDERLAP_OPACITY : MOBILE_STRONG_HEADER_SCRIM_RESTING_OPACITY,
+            duration: 200,
             useNativeDriver: true,
-        }).start(({ finished }) => {
-            if (finished && !backdropVisible) {
-                setBackdropMounted(false);
-            }
-        });
-    }, [backdropOpacity, backdropVisible]);
+        }).start();
+    }, [backdropOpacity, backdropVisible, glassEnabled]);
 
     if (Platform.OS === 'web') {
         return (
@@ -161,6 +171,65 @@ export const ChatHeaderView: React.FC<ChatHeaderViewProps> = ({
         );
     }
 
+    const nativeTitle = (
+        <BubblePressable
+            style={[styles.titleContainer, glassEnabled && styles.mobileTitleContainer]}
+            onPress={onTitlePress}
+            disabled={!onTitlePress}
+            bubbleScale={1.012}
+        >
+            <Text
+                numberOfLines={1}
+                ellipsizeMode="tail"
+                style={[
+                    styles.title,
+                    glassEnabled && styles.mobileTitleText,
+                    { color: theme.colors.header.tint, ...Typography.default('semiBold') },
+                ]}
+            >
+                {title || projectLabel}
+            </Text>
+            {(showFolderSubtitle || hasExtra) && (
+                <View style={[styles.subtitleRow, glassEnabled && styles.mobileSubtitleRow]}>
+                    {showFolderSubtitle && (
+                        <Text
+                            numberOfLines={1}
+                            ellipsizeMode="tail"
+                            style={[styles.folderName, { color: folderNameColor, ...Typography.default() }]}
+                        >
+                            {projectLabel}
+                        </Text>
+                    )}
+                    {showFolderSubtitle && hasExtra && (
+                        <Text style={[styles.separator, { color: theme.colors.textSecondary, ...Typography.default() }]}>•</Text>
+                    )}
+                    {hasExtra && (
+                        <Text
+                            numberOfLines={1}
+                            ellipsizeMode="middle"
+                            style={[styles.extraPath, { color: theme.colors.textSecondary, ...Typography.mono() }]}
+                        >
+                            {extraPathSegment}
+                        </Text>
+                    )}
+                </View>
+            )}
+            {identityLine ? (
+                <Text
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                    style={[
+                        styles.identityLine,
+                        glassEnabled && styles.mobileIdentityLine,
+                        { color: theme.colors.textSecondary, ...Typography.default() },
+                    ]}
+                >
+                    {identityLine}
+                </Text>
+            ) : null}
+        </BubblePressable>
+    );
+
     return (
         <View
             style={[
@@ -174,15 +243,9 @@ export const ChatHeaderView: React.FC<ChatHeaderViewProps> = ({
             {glassEnabled && backdropMounted && (
                 <Animated.View
                     pointerEvents="none"
-                    style={[styles.headerBlur, { opacity: backdropOpacity }]}
+                    style={[styles.headerBackdrop, { opacity: backdropOpacity }]}
                 >
-                    <BlurView
-                        blurMethod={Platform.OS === 'android' ? 'dimezisBlurViewSdk31Plus' : undefined}
-                        blurReductionFactor={2}
-                        intensity={34}
-                        tint={theme.dark ? 'systemUltraThinMaterialDark' : 'systemUltraThinMaterialLight'}
-                        style={styles.headerBlurFill}
-                    />
+                    <MobileHeaderScrim variant="strong" />
                 </Animated.View>
             )}
             <View style={styles.contentWrapper}>
@@ -196,6 +259,7 @@ export const ChatHeaderView: React.FC<ChatHeaderViewProps> = ({
                             <MobileGlassSurface
                                 enabled={glassEnabled}
                                 interactive
+                                material="static"
                                 intensity={76}
                                 style={styles.backButtonGlass}
                             >
@@ -207,58 +271,23 @@ export const ChatHeaderView: React.FC<ChatHeaderViewProps> = ({
                             </MobileGlassSurface>
                         </Pressable>
                     )}
-                    <BubblePressable
-                        style={styles.titleContainer}
-                        onPress={onTitlePress}
-                        disabled={!onTitlePress}
-                        bubbleScale={1.012}
-                    >
-                        <Text
-                            numberOfLines={1}
-                            ellipsizeMode="tail"
-                            style={[styles.title, { color: theme.colors.header.tint, ...Typography.default('semiBold') }]}
-                        >
-                            {title || projectLabel}
-                        </Text>
-                        {(showFolderSubtitle || hasExtra) && (
-                            <View style={styles.subtitleRow}>
-                                {showFolderSubtitle && (
-                                    <Text
-                                        numberOfLines={1}
-                                        ellipsizeMode="middle"
-                                        style={[styles.folderName, { color: theme.colors.textSecondary, ...Typography.default() }]}
-                                    >
-                                        {projectLabel}
-                                    </Text>
-                                )}
-                                {showFolderSubtitle && hasExtra && (
-                                    <Text style={[styles.separator, { color: theme.colors.textSecondary, ...Typography.default() }]}>•</Text>
-                                )}
-                                {hasExtra && (
-                                    <Text
-                                        numberOfLines={1}
-                                        ellipsizeMode="middle"
-                                        style={[styles.extraPath, { color: theme.colors.textSecondary, ...Typography.mono() }]}
-                                    >
-                                        {extraPathSegment}
-                                    </Text>
-                                )}
+                    {glassEnabled ? (
+                        <>
+                            <View pointerEvents="none" style={styles.mobileTitleSpacer} />
+                            <View pointerEvents="box-none" style={styles.mobileTitleOverlay}>
+                                {nativeTitle}
                             </View>
-                        )}
-                        {identityLine ? (
-                            <Text
-                                numberOfLines={1}
-                                ellipsizeMode="tail"
-                                style={[styles.identityLine, { color: theme.colors.textSecondary, ...Typography.default() }]}
-                            >
-                                {identityLine}
-                            </Text>
-                        ) : null}
-                    </BubblePressable>
+                        </>
+                    ) : (
+                        <View style={styles.titlePillContainer}>
+                            {nativeTitle}
+                        </View>
+                    )}
                     {rightSlot ? (
                         <MobileGlassSurface
                             enabled={glassEnabled}
-                            interactive
+                            nativeEffect
+                            material="static"
                             intensity={76}
                             style={styles.rightControlGlass}
                         >
@@ -278,11 +307,12 @@ const styles = StyleSheet.create((theme) => ({
         position: 'relative',
         zIndex: 100,
     },
-    headerBlur: {
-        ...StyleSheet.absoluteFillObject,
-    },
-    headerBlurFill: {
-        ...StyleSheet.absoluteFillObject,
+    headerBackdrop: {
+        position: 'absolute',
+        top: 0,
+        right: 0,
+        bottom: -36,
+        left: 0,
     },
     contentWrapper: {
         width: '100%',
@@ -308,6 +338,43 @@ const styles = StyleSheet.create((theme) => ({
         justifyContent: 'center',
         alignItems: 'flex-start',
         minWidth: 0,
+    },
+    titlePillContainer: {
+        flex: 1,
+        alignSelf: 'stretch',
+        minWidth: 0,
+    },
+    mobileTitleSpacer: {
+        flex: 1,
+        minWidth: 0,
+    },
+    mobileTitleOverlay: {
+        position: 'absolute',
+        top: 0,
+        bottom: 0,
+        left: MOBILE_GLASS_CONTROL_SIZE + 8,
+        right: MOBILE_GLASS_CONTROL_SIZE + 8,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    mobileTitleContainer: {
+        width: '100%',
+        flex: 0,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 8,
+    },
+    mobileTitleText: {
+        textAlign: 'center',
+        textShadowColor: theme.dark ? 'rgba(0, 0, 0, 0.30)' : 'rgba(255, 255, 255, 0.30)',
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 2,
+    },
+    mobileSubtitleRow: {
+        justifyContent: 'center',
+    },
+    mobileIdentityLine: {
+        textAlign: 'center',
     },
     webTitleRow: {
         flexDirection: 'row',
@@ -402,6 +469,7 @@ const styles = StyleSheet.create((theme) => ({
         shadowOpacity: Platform.select({ web: 0, default: 1 }),
         shadowRadius: 18,
         elevation: Platform.select({ android: 8, default: 0 }),
+        zIndex: 1,
     },
     rightSlot: {
         minHeight: Platform.select({ web: 0, default: MOBILE_GLASS_CONTROL_SIZE }),
@@ -416,6 +484,7 @@ const styles = StyleSheet.create((theme) => ({
         width: Platform.select({ web: 36, default: MOBILE_GLASS_CONTROL_SIZE }),
         height: Platform.select({ web: 36, default: MOBILE_GLASS_CONTROL_SIZE }),
         borderRadius: MOBILE_GLASS_CONTROL_RADIUS,
+        zIndex: 1,
     },
     backButtonGlass: {
         width: '100%',

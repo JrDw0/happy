@@ -33,7 +33,6 @@ import { t } from '@/text';
 import { isUsingCustomServer } from '@/sync/serverConfig';
 import { trackFriendsSearch } from '@/track';
 import { MOBILE_GLASS_HEADER_HEIGHT } from './navigation/headerMetrics';
-import { MobileGlassSurface } from './MobileGlass';
 
 interface MainViewProps {
     variant: 'phone' | 'sidebar';
@@ -136,17 +135,10 @@ const styles = StyleSheet.create((theme) => ({
     headerActions: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 8,
-    },
-    headerActionGlass: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        overflow: 'hidden',
     },
     headerActionButton: {
-        width: '100%',
-        height: '100%',
+        width: 44,
+        height: 44,
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -287,37 +279,28 @@ const HeaderRight = React.memo(({
         if (Platform.OS !== 'web') {
             return (
                 <View style={styles.headerActions}>
-                    <MobileGlassSurface nativeEffect interactive style={styles.headerActionGlass}>
-                        <Pressable
-                            onPress={onSearchPress}
-                            style={styles.headerActionButton}
-                            hitSlop={8}
-                        >
-                            <Ionicons
-                                name={searchActive ? 'close' : 'search'}
-                                size={searchActive ? 24 : 21}
-                                color={theme.colors.header.tint}
-                            />
-                        </Pressable>
-                    </MobileGlassSurface>
-                    <MobileGlassSurface nativeEffect interactive style={styles.headerActionGlass}>
-                        <Pressable
-                            onPress={() => router.push('/history')}
-                            style={styles.headerActionButton}
-                            hitSlop={8}
-                        >
-                            <Ionicons name="time-outline" size={21} color={theme.colors.header.tint} />
-                        </Pressable>
-                    </MobileGlassSurface>
-                    <MobileGlassSurface nativeEffect interactive style={styles.headerActionGlass}>
-                        <Pressable
-                            onPress={() => router.push('/settings')}
-                            style={styles.headerActionButton}
-                            hitSlop={8}
-                        >
-                            <Ionicons name="settings-outline" size={21} color={theme.colors.header.tint} />
-                        </Pressable>
-                    </MobileGlassSurface>
+                    <Pressable
+                        onPress={onSearchPress}
+                        style={styles.headerActionButton}
+                    >
+                        <Ionicons
+                            name={searchActive ? 'close' : 'search'}
+                            size={searchActive ? 24 : 21}
+                            color={theme.colors.header.tint}
+                        />
+                    </Pressable>
+                    <Pressable
+                        onPress={() => router.push('/history')}
+                        style={styles.headerActionButton}
+                    >
+                        <Ionicons name="time-outline" size={21} color={theme.colors.header.tint} />
+                    </Pressable>
+                    <Pressable
+                        onPress={() => router.push('/settings')}
+                        style={styles.headerActionButton}
+                    >
+                        <Ionicons name="settings-outline" size={21} color={theme.colors.header.tint} />
+                    </Pressable>
                 </View>
             );
         }
@@ -495,12 +478,14 @@ export const MainView = React.memo(({ variant }: MainViewProps) => {
                         onSearchPress={handleSearchPress}
                     />
                 ) : undefined}
-                headerRightGlass={false}
                 headerLeft={() => <HeaderLogo />}
                 headerLeftGlass={Platform.OS !== 'web'}
                 headerBackdropVisible={headerBackdropVisible}
+                headerBackdropAlwaysVisible={Platform.OS !== 'web'}
+                headerBackdropVariant="strong"
                 headerShadowVisible={false}
                 headerTransparent={true}
+                mobileTitleSurface="plain"
             />
             {realtimeStatus !== 'disconnected' && (
                 <VoiceAssistantStatusBar variant="full" />
